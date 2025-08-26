@@ -11,7 +11,7 @@ export default function PasswordInput({ name, value, onChange, error }) {
       <TextInput
         id={name}
         type={showPassword ? "text" : "password"}
-        name={name} // ✅ forward the name
+        name={name}
         value={value}
         onChange={onChange}
         placeholder="Password"
@@ -19,7 +19,7 @@ export default function PasswordInput({ name, value, onChange, error }) {
         autoComplete={name === "password" ? "new-password" : "off"}
       />
 
-      {/* Eye toggle */}
+
       <button
         type="button"
         onClick={() => setShowPassword(!showPassword)}

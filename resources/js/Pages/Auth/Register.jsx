@@ -4,7 +4,7 @@ import InputError from "@/Components/InputError";
 import PrimaryButton from "@/Components/PrimaryButton";
 import TextInput from "@/Components/TextInput";
 import { Head, Link, useForm } from "@inertiajs/react";
-import PasswordInput from "@/Components/AuthForm/PasswordInput";  // Import your custom PasswordInput
+import PasswordInput from "@/Components/AuthForm/PasswordInput";  
 
 export default function Register() {
   const { data, setData, post, processing, errors, reset } = useForm({
@@ -44,7 +44,6 @@ export default function Register() {
           <h1 className="text-2xl font-semibold mb-8">Registration</h1>
 
           <form onSubmit={submit} className="space-y-4">
-            {/* Name */}
             <div className="text-left">
               <label className="block text-gray-700 mb-1">Name :</label>
               <TextInput
@@ -60,7 +59,6 @@ export default function Register() {
               <InputError message={errors.name} className="mt-1 text-sm" />
             </div>
 
-            {/* Email */}
             <div className="text-left">
               <label className="block text-gray-700 mb-1">E-mail :</label>
               <TextInput
@@ -77,7 +75,6 @@ export default function Register() {
               <InputError message={errors.email} className="mt-1 text-sm" />
             </div>
 
-            {/* Phone */}
             <div className="text-left">
               <label className="block text-gray-700 mb-1">Phone :</label>
               <TextInput
@@ -94,7 +91,6 @@ export default function Register() {
               <InputError message={errors.phone} className="mt-1 text-sm" />
             </div>
 
-            {/* Password */}
             <div className="text-left">
               <label className="block text-gray-700 mb-1">Password :</label>
               <PasswordInput
@@ -104,8 +100,6 @@ export default function Register() {
                 error={errors.password}
               />
             </div>
-
-            {/* Confirm Password */}
             <div className="text-left">
               <label className="block text-gray-700 mb-1">
                 Confirm Password :
@@ -118,7 +112,6 @@ export default function Register() {
               />
             </div>
 
-            {/* Submit Button */}
             <div className="pt-4">
               <PrimaryButton
                 className="w-full rounded-full py-3 bg-black text-white font-semibold hover:bg-gray-800 transition"
@@ -128,7 +121,6 @@ export default function Register() {
               </PrimaryButton>
             </div>
 
-            {/* Footer */}
             <p className="text-sm text-gray-600 mt-3">
               Already have an account?{" "}
               <Link href={route("login")} className="text-blue-600 underline">

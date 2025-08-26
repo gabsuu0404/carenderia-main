@@ -48,7 +48,6 @@ export default function Login({ status, canResetPassword }) {
           )}
 
           <form onSubmit={submit} className="space-y-5">
-            {/* Email */}
             <div>
               <TextInput
                 id="email"
@@ -64,7 +63,6 @@ export default function Login({ status, canResetPassword }) {
               <InputError message={errors.email} className="mt-2" />
             </div>
 
-            {/* Password (split into its own component) */}
             <PasswordInput
               name="password"
               value={data.password}
@@ -72,7 +70,6 @@ export default function Login({ status, canResetPassword }) {
               error={errors.password}
             />
 
-            {/* Remember me + Forgot password */}
             <div className="flex items-center justify-between">
               <label className="flex items-center text-sm text-gray-600">
                 <Checkbox
