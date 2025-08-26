@@ -1,6 +1,6 @@
 # Gabbyxd
 
-###TEST EDIT 
+### TEST EDIT 
 
 PRE REQUISITES(MERON DAPAT ):
 
@@ -84,6 +84,8 @@ we could check it out sa db if it works (Open carenderia_db on php admin) it sho
 
 c:\Users\therm\AppData\Local\Packages\MicrosoftWindows.Client.Core_cw5n1h2txyewy\TempState\ScreenClip\{8C8E32EA-7D2C-4A53-8FFE-BE9732FFCC8B}.png
 
+
+## Start HERE
 
 Now that's all setup assuming that this was cloned in another device 
 in terminal of your vsc (git clone https://github.com/gabsuu0404/Gabbyxd.git)
