@@ -1,4 +1,4 @@
-# Gabbyxd
+# 3ms
 
 ### TEST EDIT 
 
@@ -88,7 +88,7 @@ c:\Users\therm\AppData\Local\Packages\MicrosoftWindows.Client.Core_cw5n1h2txyewy
 ## Start HERE
 
 Now that's all setup assuming that this was cloned in another device 
-in terminal of your vsc (git clone https://github.com/gabsuu0404/Gabbyxd.git)
+in terminal of your vsc (git clone https://github.com/(repo)
 
 check prequisites above if you have it all
 then step by step:
