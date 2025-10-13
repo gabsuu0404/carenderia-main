@@ -4,36 +4,36 @@ import { useState } from "react";
 import AboutUs from "@/Components/AboutUs";  
 
 const carouselItems = [     //Dummy data
-  { title: "Meal 1", img: "/images/burger.png" },
-  { title: "Meal 2", img: "/images/burger.png" },
+  { title: "Meal 1", img: "/images/food1.jpg" },
+  { title: "Meal 2", img: "/images/food2.jpg" },
   { title: "Service 1", img: "/images/service.png" },
   { title: "Service 2", img: "/images/service.png" },
 ];
 
 const reviewItems = [ //Dummy data
   {
-    name: "John Doe",
+    name: "d4vd",
     rating: 5,
-    text: "Amazing food and excellent service! Highly recommend.",
-    img: "/images/user1.png",
+    text: "Lami kayo ang sinuglaw.",
+    img: "/images/d4vd.avif",
   },
   {
-    name: "Jane Smith",
+    name: "lil uzi vert",
     rating: 4,
-    text: "Great meals but a bit slow on delivery. Overall good experience.",
-    img: "/images/user2.png",
+    text: "namit gid! Lami kaayo ang chicken curry.",
+    img: "/images/liluzivert.jpg",
   },
   {
-    name: "Alice Johnson",
+    name: "tota mc",
     rating: 5,
-    text: "Loved it! Will order again.",
-    img: "/images/user3.png",
+    text: "Lami kaayo ang pagkaon sa 3m's balik ko dire kauban si kai ug ray.",
+    img: "/images/totamc.jpg",
   },
   {
-    name: "Bob Williams",
+    name: "Kai Cenat",
     rating: 4,
-    text: "Food was tasty and fresh. Service was polite.",
-    img: "/images/user4.png",
+    text: "Gidala kong tota dire asta diay lamia barato pa sana all! papap dol! ayaw kol!",
+    img: "/images/kaicenat.jpg",
   },
 ];
 
@@ -56,7 +56,7 @@ export default function Welcome(props) {
         {/* Header */}
         <header
           className="relative bg-cover bg-center h-[400px]"
-          style={{ backgroundImage: "url('/images/eatery.png')" }}
+          style={{ backgroundImage: "url('/images/kainan1.jpg')" }}
         >
           <div className="absolute inset-0 bg-black bg-opacity-30 flex flex-col justify-center items-start text-white px-8 md:px-16">
             <h1 className="text-4xl md:text-6xl font-bold mb-4 text-left">3m's</h1>

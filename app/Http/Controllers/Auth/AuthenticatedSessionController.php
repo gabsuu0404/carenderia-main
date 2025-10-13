@@ -34,6 +34,22 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
+        // Check if user is blocked
+        if (Auth::user()->isBlocked()) {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+            
+            return redirect()->route('login')->with('error', 'Your account has been blocked. Please contact an administrator.');
+        }
+
+        // Redirect based on user role
+        if (Auth::user()->isAdmin()) {
+            return redirect()->intended(route('admin.dashboard'));
+        } elseif (Auth::user()->isEmployee()) {
+            return redirect()->intended(route('employee.dashboard'));
+        }
+
         return redirect()->intended(RouteServiceProvider::HOME);
     }
 

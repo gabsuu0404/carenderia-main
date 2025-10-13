@@ -1,17 +1,20 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Checkbox from "@/Components/Checkbox";
 import GuestLayout from "@/Layouts/GuestLayout";
 import InputError from "@/Components/InputError";
+import Notification from "@/Components/Notification";
 import PrimaryButton from "@/Components/PrimaryButton";
 import TextInput from "@/Components/TextInput";
 import PasswordInput from "@/Components/AuthForm/PasswordInput";
 import { Head, Link, useForm } from "@inertiajs/react";
-export default function Login({ status, canResetPassword }) {
+export default function Login({ status, canResetPassword, error }) {
   const { data, setData, post, processing, errors, reset } = useForm({
     email: "",
     password: "",
     remember: "",
   });
+
+  const [notificationMessage, setNotificationMessage] = useState(error);
 
   useEffect(() => {
     return () => {
@@ -36,6 +39,13 @@ export default function Login({ status, canResetPassword }) {
   return (
     <GuestLayout>
       <Head title="Sign In" />
+
+      {/* Notification for blocked users */}
+      <Notification 
+        message={notificationMessage} 
+        type="error" 
+        onClose={() => setNotificationMessage(null)} 
+      />
 
       <div className="flex items-center justify-center min-h-screen">
         <div className="bg-white shadow-xl rounded-3xl p-8 w-full max-w-md">
