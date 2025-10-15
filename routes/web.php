@@ -65,6 +65,13 @@ Route::middleware(['auth', 'user.status', 'role:employee'])->group(function () {
     Route::put('/employee/raw-materials/{rawMaterial}', [EmployeeController::class, 'updateRawMaterial'])->name('employee.raw-materials.update');
     Route::post('/employee/raw-materials/{rawMaterial}/hide', [EmployeeController::class, 'hideRawMaterial'])->name('employee.raw-materials.hide');
     Route::post('/employee/raw-materials/{rawMaterial}/unhide', [EmployeeController::class, 'unhideRawMaterial'])->name('employee.raw-materials.unhide');
+
+    // Inventory management
+    Route::get('/employee/inventory', [EmployeeController::class, 'inventory'])->name('employee.inventory');
+    Route::post('/employee/inventory', [EmployeeController::class, 'storeInventory'])->name('employee.inventory.store');
+    Route::put('/employee/inventory/{item}', [EmployeeController::class, 'updateInventory'])->name('employee.inventory.update');
 });
 
 require __DIR__.'/auth.php';
+
+
