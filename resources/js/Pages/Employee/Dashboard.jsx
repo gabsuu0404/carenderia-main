@@ -77,7 +77,7 @@ export default function EmployeeDashboard({ userCounts, mealCounts, rawMaterialC
                 {/* Raw Materials Section */}
                 <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">Raw Materials Overview</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <div className="bg-white shadow rounded-lg p-6">
                             <h4 className="text-lg font-semibold text-gray-900 mb-2">Total Materials</h4>
                             <p className="text-3xl font-bold text-cyan-600">{rawMaterialCounts.total}</p>
@@ -100,12 +100,6 @@ export default function EmployeeDashboard({ userCounts, mealCounts, rawMaterialC
                             <h4 className="text-lg font-semibold text-gray-900 mb-2">Hidden Materials</h4>
                             <p className="text-3xl font-bold text-orange-600">{rawMaterialCounts.hidden}</p>
                             <p className="text-sm text-gray-500">Temporarily hidden</p>
-                        </div>
-                        
-                        <div className="bg-white shadow rounded-lg p-6">
-                            <h4 className="text-lg font-semibold text-gray-900 mb-2">Expiring Soon</h4>
-                            <p className="text-3xl font-bold text-yellow-600">{rawMaterialCounts.expiring_soon}</p>
-                            <p className="text-sm text-gray-500">Within 7 days</p>
                         </div>
                     </div>
                 </div>
