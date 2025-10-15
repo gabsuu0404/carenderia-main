@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Meal;
 use App\Models\RawMaterial;
+use App\Models\Inventory; 
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -247,4 +248,61 @@ class EmployeeController extends Controller
 
         return redirect()->route('employee.raw-materials')->with('success', 'Raw material unhidden successfully.');
     }
+
+    /**
+ * Display the Inventory page with all ingredients.
+ */
+public function inventory()
+{
+    // Fetch all ingredients from the Inventory model
+    $ingredients = \App\Models\Inventory::all();
+
+    // Render the Inventory page and pass the data
+    return inertia('Employee/Inventory', [
+        'ingredients' => $ingredients,
+    ]);
+}
+
+/**
+ * Store a newly created ingredient in the inventory.
+ */
+public function storeInventory(Request $request)
+{
+    // Validate form input fields
+    $validated = $request->validate([
+        'name' => 'required|string|max:255',
+        'quantity' => 'required|numeric|min:0',
+        'unit' => 'required|string',
+        'pax_capacity' => 'required|integer|min:1',
+    ]);
+
+    // Save validated data to the database
+    \App\Models\Inventory::create($validated);
+
+    // Redirect back with success message
+    return redirect()->back()->with('success', 'Ingredient added successfully!');
+}
+
+    /**
+     * Update an existing ingredient in the inventory.
+     */
+    public function updateInventory(Request $request, $id)
+{
+        // Validate updated data
+        $validated = $request->validate([
+          'name' => 'required|string|max:255',
+          'quantity' => 'required|numeric|min:0',
+          'unit' => 'required|string',
+          'pax_capacity' => 'required|integer|min:1',
+    ]);
+
+     // Find the inventory record or fail if not found
+     $inventory = \App\Models\Inventory::findOrFail($id);
+
+     // Update the record with new validated data
+     $inventory->update($validated);
+
+    // Redirect back with success message
+    return redirect()->back()->with('success', 'Ingredient updated successfully!');
+}
 }

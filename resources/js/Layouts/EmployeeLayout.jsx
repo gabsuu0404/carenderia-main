@@ -16,6 +16,7 @@ export default function EmployeeLayout({ title = 'Employee', children }) {
 					<Link href={route('employee.users')} className="block px-3 py-2 rounded hover:bg-blue-700">View Users</Link>
 					<Link href={route('employee.meals')} className="block px-3 py-2 rounded hover:bg-blue-700">Manage Meals</Link>
 					<Link href={route('employee.raw-materials')} className="block px-3 py-2 rounded hover:bg-blue-700">Raw Materials</Link>
+				    <Link href={route('employee.inventory')} className="block px-3 py-2 rounded hover:bg-blue-700">Inventory</Link>
 				</nav>
 			</div>
 
