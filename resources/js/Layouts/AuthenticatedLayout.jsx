@@ -3,13 +3,15 @@ import ApplicationLogo from '@/Components/ApplicationLogo';
 import Dropdown from '@/Components/Dropdown';
 import NavLink from '@/Components/NavLink';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink';
+import CartIcon from '@/Components/CartIcon';
+import Footer from '@/Components/Footer';
 import { Link } from '@inertiajs/react';
 
 export default function Authenticated({ auth, header, children }) {
     const [showingNavigationDropdown, setShowingNavigationDropdown] = useState(false);
 
     return (
-        <div className="min-h-screen bg-gray-100">
+        <div className="flex flex-col min-h-screen bg-gray-100">
             <nav className="bg-white border-b border-gray-100">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between h-16">
@@ -24,10 +26,21 @@ export default function Authenticated({ auth, header, children }) {
                                 <NavLink href={route('dashboard')} active={route().current('dashboard')}>
                                     Home
                                 </NavLink>
+                                <NavLink href={route('about')} active={route().current('about')}>
+                                    About
+                                </NavLink>
+                                <NavLink href={route('order')} active={route().current('order')}>
+                                    Order Now
+                                </NavLink>
                             </div>
                         </div>
 
                         <div className="hidden sm:flex sm:items-center sm:ml-6">
+                            {/* Cart Icon */}
+                            <div className="mr-4">
+                                <CartIcon />
+                            </div>
+                            
                             <div className="ml-3 relative">
                                 <Dropdown>
                                     <Dropdown.Trigger>
@@ -56,6 +69,7 @@ export default function Authenticated({ auth, header, children }) {
 
                                     <Dropdown.Content>
                                         <Dropdown.Link href={route('profile.edit')}>Profile</Dropdown.Link>
+                                        <Dropdown.Link href={route('my.orders')}>My Orders</Dropdown.Link>
                                         <Dropdown.Link href={route('logout')} method="post" as="button">
                                             Log Out
                                         </Dropdown.Link>
@@ -95,6 +109,12 @@ export default function Authenticated({ auth, header, children }) {
                         <ResponsiveNavLink href={route('dashboard')} active={route().current('dashboard')}>
                             Home
                         </ResponsiveNavLink>
+                        <ResponsiveNavLink href={route('about')} active={route().current('about')}>
+                            About
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink href={route('order')} active={route().current('order')}>
+                            Order Now
+                        </ResponsiveNavLink>
                     </div>
 
                     <div className="pt-4 pb-1 border-t border-gray-200">
@@ -107,6 +127,12 @@ export default function Authenticated({ auth, header, children }) {
 
                         <div className="mt-3 space-y-1">
                             <ResponsiveNavLink href={route('profile.edit')}>Profile</ResponsiveNavLink>
+                            <ResponsiveNavLink href={route('my.orders')}>
+                                <div className="flex items-center">
+                                    <span>My Orders</span>
+                                    <CartIcon />
+                                </div>
+                            </ResponsiveNavLink>
                             <ResponsiveNavLink method="post" href={route('logout')} as="button">
                                 Log Out
                             </ResponsiveNavLink>
@@ -121,7 +147,9 @@ export default function Authenticated({ auth, header, children }) {
                 </header>
             )}
 
-            <main>{children}</main>
+            <main className="flex-grow">{children}</main>
+            
+            <Footer />
         </div>
     );
 }

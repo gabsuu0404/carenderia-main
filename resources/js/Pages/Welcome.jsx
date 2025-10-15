@@ -1,7 +1,8 @@
 import NavigationBar from "@/Components/NavigationBar";
 import { Head } from "@inertiajs/react";
 import { useState } from "react";
-import AboutUs from "@/Components/AboutUs";  
+import AboutUs from "@/Components/AboutUs";
+import Footer from "@/Components/Footer";  
 
 const carouselItems = [     //Dummy data
   { title: "Meal 1", img: "/images/food1.jpg" },
@@ -157,6 +158,7 @@ export default function Welcome(props) {
         </section>
 
         <AboutUs />
+        <Footer />
       </div>
     </>
   );

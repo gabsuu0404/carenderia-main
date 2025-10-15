@@ -27,6 +27,11 @@ Route::get('/', function () {
     ]);
 });
 
+// Public about page
+Route::get('/about', function () {
+    return Inertia::render('About');
+})->name('about');
+
 Route::get('/dashboard', function () {
     return Inertia::render('Dashboard');
 })->middleware(['auth', 'verified', 'user.status'])->name('dashboard');
@@ -36,10 +41,15 @@ Route::middleware(['auth', 'user.status'])->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     
-    // Order page
-    Route::get('/order', function () {
-        return Inertia::render('Order');
-    })->name('order');
+    // This route is already defined as a public route above
+    
+    // Order pages
+    Route::get('/order', [App\Http\Controllers\OrderController::class, 'index'])->name('order');
+    Route::post('/orders', [App\Http\Controllers\OrderController::class, 'store'])->name('orders.store');
+    Route::get('/my-orders', [App\Http\Controllers\OrderController::class, 'myOrders'])->name('my.orders');
+    Route::get('/my-orders/{id}/edit', [App\Http\Controllers\OrderController::class, 'edit'])->name('orders.edit');
+    Route::put('/my-orders/{id}', [App\Http\Controllers\OrderController::class, 'update'])->name('orders.update');
+    Route::post('/my-orders/{id}/cancel', [App\Http\Controllers\OrderController::class, 'cancel'])->name('orders.cancel');
 });
 
 // Admin area (example protected route)
@@ -75,6 +85,10 @@ Route::middleware(['auth', 'user.status', 'role:employee'])->group(function () {
     Route::get('/employee/inventory', [EmployeeController::class, 'inventory'])->name('employee.inventory');
     Route::post('/employee/inventory', [EmployeeController::class, 'storeInventory'])->name('employee.inventory.store');
     Route::put('/employee/inventory/{item}', [EmployeeController::class, 'updateInventory'])->name('employee.inventory.update');
+
+    // Order management
+    Route::get('/employee/orders', [EmployeeController::class, 'orders'])->name('employee.orders');
+    Route::put('/employee/orders/{id}/status', [App\Http\Controllers\OrderController::class, 'updateStatus'])->name('employee.orders.update-status');
 });
 
 require __DIR__.'/auth.php';

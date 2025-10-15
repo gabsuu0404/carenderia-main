@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "@inertiajs/react";
 
 export default function NavigationBar() {
   return (
@@ -10,15 +11,15 @@ export default function NavigationBar() {
         <a href="#contacts" className="hover:text-gray-700">
           Contacts
         </a>
-        <a href="#about" className="hover:text-gray-700">
+        <Link href={route('about')} className="hover:text-gray-700">
           About
-        </a>
-        <a 
-          href="login" 
+        </Link>
+        <Link
+          href={route('login')}
           className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
         >
           Login
-        </a>
+        </Link>
       </div>
     </nav>
   );

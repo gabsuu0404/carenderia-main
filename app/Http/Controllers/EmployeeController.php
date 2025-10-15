@@ -305,4 +305,44 @@ public function storeInventory(Request $request)
     // Redirect back with success message
     return redirect()->back()->with('success', 'Ingredient updated successfully!');
 }
+
+    /**
+     * Display the orders management page with calendar view.
+     */
+    public function orders(): Response
+    {
+        $orders = \App\Models\Order::orderBy('delivery_date')
+        ->get()
+        ->map(function ($order) {
+            // Format the order data, ensuring proper date format
+            return [
+                'id' => $order->id,
+                'user_id' => $order->user_id,
+                'customer_name' => $order->customer_name,
+                'customer_email' => $order->customer_email,
+                'customer_phone' => $order->customer_phone,
+                'delivery_address' => $order->delivery_address,
+                'delivery_date' => $order->delivery_date->format('Y-m-d'), // Ensure consistent YYYY-MM-DD format
+                'package_id' => $order->package_id,
+                'package_name' => $order->package_name,
+                'package_price' => $order->package_price,
+                'number_of_pax' => $order->number_of_pax,
+                'selected_dishes' => $order->selected_dishes,
+                'total_amount' => $order->total_amount,
+                'status' => $order->status,
+                'notes' => $order->notes,
+                'created_at' => $order->created_at ? $order->created_at->format('Y-m-d H:i:s') : null
+            ];
+        });
+        
+        // Log the orders data for debugging
+        \Log::info('Orders data sent to Employee Orders page:', [
+            'count' => $orders->count(),
+            'first_order' => $orders->first(),
+        ]);
+
+        return Inertia::render('Employee/Orders', [
+            'orders' => $orders
+        ]);
+    }
 }
