@@ -56,17 +56,20 @@ export default function Welcome(props) {
         {/* Header */}
         <header
           className="relative bg-cover bg-center h-[400px]"
-          style={{ backgroundImage: "url('/images/kainan1.jpg')" }}
+          style={{ backgroundImage: "url('/images/titlepic.jpg')" }}
         >
           <div className="absolute inset-0 bg-black bg-opacity-30 flex flex-col justify-center items-start text-white px-8 md:px-16">
-            <h1 className="text-4xl md:text-6xl font-bold mb-4 text-left">3m's</h1>
+            <h1 className="text-4xl md:text-6xl font-bold mb-4 text-left">3M's</h1>
             <div className="bg-gray-900 bg-opacity-40 text-gray-900 p-6 rounded-lg max-w-xl text-left text-white">
               <p className="mb-4">
                 Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
               </p>
-              <button className="bg-gray-900 text-white px-6 py-3 rounded-md hover:bg-gray-700 transition">
+              <a 
+                href={route('order')}
+                className="inline-block bg-red-600 text-white px-6 py-3 rounded-md hover:bg-red-700 transition cursor-pointer"
+              >
                 Order Now
-              </button>
+              </a>
             </div>
           </div>
         </header>

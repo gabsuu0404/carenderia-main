@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Meal;
 use App\Models\RawMaterial;
-use App\Models\Inventory; 
+use App\Models\Inventory;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
