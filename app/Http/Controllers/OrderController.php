@@ -147,10 +147,30 @@ class OrderController extends Controller
                         ];
                     });
 
+        // Dedicated Filipino dishes for Fiesta Package (not from meal management)
+        $fiestaDishes = [
+            ['id' => 201, 'name' => 'Pork Adobo', 'description' => 'Classic Filipino dish with pork cooked in soy sauce, vinegar, and spices'],
+            ['id' => 202, 'name' => 'Chicken Tinola', 'description' => 'Ginger-based soup with chicken, green papaya, and chili leaves'],
+            ['id' => 203, 'name' => 'Beef Kaldereta', 'description' => 'Rich beef stew with liver spread, bell peppers, and potatoes'],
+            ['id' => 204, 'name' => 'Pork Sinigang', 'description' => 'Tamarind-based sour soup with pork and vegetables'],
+            ['id' => 205, 'name' => 'Chicken Afritada', 'description' => 'Tomato-based stew with chicken, potatoes, and carrots'],
+            ['id' => 206, 'name' => 'Beef Mechado', 'description' => 'Filipino-style beef pot roast with tomato sauce'],
+            ['id' => 207, 'name' => 'Pancit Bihon', 'description' => 'Stir-fried rice noodles with meat and vegetables'],
+            ['id' => 208, 'name' => 'Lumpiang Shanghai', 'description' => 'Filipino-style spring rolls filled with ground pork'],
+            ['id' => 209, 'name' => 'Pork Menudo', 'description' => 'Diced pork stew with potatoes, carrots, and liver spread'],
+            ['id' => 210, 'name' => 'Chicken Inasal', 'description' => 'Grilled chicken marinated in vinegar, lime, and spices'],
+            ['id' => 211, 'name' => 'Pinakbet', 'description' => 'Mixed vegetables sautéed in shrimp paste'],
+            ['id' => 212, 'name' => 'Nilaga', 'description' => 'Clear beef soup with vegetables and potatoes'],
+            ['id' => 213, 'name' => 'Kare-Kare', 'description' => 'Philippine stew with oxtail and vegetables in rich peanut sauce'],
+            ['id' => 214, 'name' => 'Lechon Kawali', 'description' => 'Deep-fried crispy pork belly'],
+            ['id' => 215, 'name' => 'Bistek Tagalog', 'description' => 'Filipino-style beef steak with citrus and soy sauce']
+        ];
+        
         return Inertia::render('MyOrders', [
             'orders' => $orders,
             'pendingOrdersCount' => $pendingOrdersCount,
             'foodPaxDishes' => $foodPaxDishes,
+            'fiestaDishes' => $fiestaDishes,
             'filipinoDesserts' => $filipinoDesserts,
             'dbMeals' => $dbMeals,
         ]);
@@ -236,9 +256,29 @@ class OrderController extends Controller
                         ];
                     });
 
+        // Dedicated Filipino dishes for Fiesta Package (not from meal management)
+        $fiestaDishes = [
+            ['id' => 201, 'name' => 'Pork Adobo', 'description' => 'Classic Filipino dish with pork cooked in soy sauce, vinegar, and spices'],
+            ['id' => 202, 'name' => 'Chicken Tinola', 'description' => 'Ginger-based soup with chicken, green papaya, and chili leaves'],
+            ['id' => 203, 'name' => 'Beef Kaldereta', 'description' => 'Rich beef stew with liver spread, bell peppers, and potatoes'],
+            ['id' => 204, 'name' => 'Pork Sinigang', 'description' => 'Tamarind-based sour soup with pork and vegetables'],
+            ['id' => 205, 'name' => 'Chicken Afritada', 'description' => 'Tomato-based stew with chicken, potatoes, and carrots'],
+            ['id' => 206, 'name' => 'Beef Mechado', 'description' => 'Filipino-style beef pot roast with tomato sauce'],
+            ['id' => 207, 'name' => 'Pancit Bihon', 'description' => 'Stir-fried rice noodles with meat and vegetables'],
+            ['id' => 208, 'name' => 'Lumpiang Shanghai', 'description' => 'Filipino-style spring rolls filled with ground pork'],
+            ['id' => 209, 'name' => 'Pork Menudo', 'description' => 'Diced pork stew with potatoes, carrots, and liver spread'],
+            ['id' => 210, 'name' => 'Chicken Inasal', 'description' => 'Grilled chicken marinated in vinegar, lime, and spices'],
+            ['id' => 211, 'name' => 'Pinakbet', 'description' => 'Mixed vegetables sautéed in shrimp paste'],
+            ['id' => 212, 'name' => 'Nilaga', 'description' => 'Clear beef soup with vegetables and potatoes'],
+            ['id' => 213, 'name' => 'Kare-Kare', 'description' => 'Philippine stew with oxtail and vegetables in rich peanut sauce'],
+            ['id' => 214, 'name' => 'Lechon Kawali', 'description' => 'Deep-fried crispy pork belly'],
+            ['id' => 215, 'name' => 'Bistek Tagalog', 'description' => 'Filipino-style beef steak with citrus and soy sauce']
+        ];
+        
         return Inertia::render('EditOrder', [
             'order' => $formattedOrder,
             'foodPaxDishes' => $foodPaxDishes,
+            'fiestaDishes' => $fiestaDishes,
             'filipinoDesserts' => $filipinoDesserts,
             'dbMeals' => $dbMeals,
         ]);
@@ -261,7 +301,7 @@ class OrderController extends Controller
             
         // Validate the update request
         $validated = $request->validate([
-            'delivery_date' => 'required|date|after:today',
+            'delivery_date' => 'required|date|after_or_equal:today',
             'delivery_address' => 'required|string',
             'number_of_pax' => 'required|integer|min:1',
             'selected_dishes' => 'required|array',
@@ -292,22 +332,7 @@ class OrderController extends Controller
         
         $order->save();
         
-        // If this was an AJAX request, return JSON response
-        if ($request->ajax() || $request->wantsJson()) {
-            return response()->json([
-                'success' => true,
-                'message' => 'Order updated successfully'
-            ]);
-        }
-        
-        // Check if a referrer URL is provided
-        $referrer = $request->header('referer');
-        if ($referrer && strpos($referrer, 'edit') !== false) {
-            // If we came from the edit page, go back to my orders
-            return redirect()->route('my.orders')->with('success', 'Order updated successfully.');
-        }
-        
-        // Default behavior - return to my orders with success message
+        // Always return to my orders with success message
         return redirect()->route('my.orders')->with('success', 'Order updated successfully.');
     }
     
@@ -330,14 +355,7 @@ class OrderController extends Controller
         $order->status = 'cancelled';
         $order->save();
         
-        // If this was an AJAX request, return JSON response
-        if ($request->ajax() || $request->wantsJson()) {
-            return response()->json([
-                'success' => true,
-                'message' => 'Order cancelled successfully'
-            ]);
-        }
-        
+        // Always return a redirect response for Inertia requests
         return redirect()->route('my.orders')->with('success', 'Order cancelled successfully.');
     }
     
