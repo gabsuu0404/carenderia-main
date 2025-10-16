@@ -1,13 +1,21 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, router } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
+import { useState, useEffect } from 'react';
+import Notification from '@/Components/Notification';
 
-export default function MyOrders({ auth, orders, pendingOrdersCount, flash }) {
+export default function MyOrders({ auth, orders, pendingOrdersCount }) {
+    const page = usePage();
+    const flash = page.props.flash || {};
     const [selectedStatus, setSelectedStatus] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
+    const [notification, setNotification] = useState({
+        message: flash.success || flash.error || '',
+        type: flash.success ? 'success' : flash.error ? 'error' : null,
+        visible: !!(flash.success || flash.error)
+    });
 
     // Filter orders by status and search term
-    const filteredOrders = orders.filter(order => {
+    const filteredOrders = (orders || []).filter(order => {
         const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus;
         const matchesSearch = order.package_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                             (order.selected_dishes && order.selected_dishes.some(dish => 
@@ -43,6 +51,14 @@ export default function MyOrders({ auth, orders, pendingOrdersCount, flash }) {
             header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">My Orders</h2>}
         >
             <Head title="My Orders" />
+            
+            {notification.visible && notification.message && (
+                <Notification 
+                    message={notification.message} 
+                    type={notification.type || 'success'} 
+                    onClose={() => setNotification({...notification, visible: false})} 
+                />
+            )}
 
             <div className="py-12">
                 <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -54,7 +70,7 @@ export default function MyOrders({ auth, orders, pendingOrdersCount, flash }) {
                                 </div>
                             )}
                             <div className="flex flex-col sm:flex-row justify-between items-center mb-6">
-                                <h3 className="text-lg font-semibold">Your Orders ({orders.length})</h3>
+                                <h3 className="text-lg font-semibold">Your Orders ({orders ? orders.length : 0})</h3>
                                 <div className="flex flex-col sm:flex-row mt-4 sm:mt-0 w-full sm:w-auto">
                                     {/* Filter by Status */}
                                     <div className="mb-2 sm:mb-0 sm:mr-4">
@@ -102,7 +118,7 @@ export default function MyOrders({ auth, orders, pendingOrdersCount, flash }) {
                                 </Link>
                             </div>
 
-                            {filteredOrders.length === 0 ? (
+                            {!orders || filteredOrders.length === 0 ? (
                                 <div className="text-center py-8">
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -196,7 +212,22 @@ export default function MyOrders({ auth, orders, pendingOrdersCount, flash }) {
                                                                 <button
                                                                     onClick={() => {
                                                                         if (confirm('Are you sure you want to cancel this order?')) {
-                                                                            router.post(route('orders.cancel', order.id));
+                                                                            router.post(route('orders.cancel', order.id), {}, {
+                                                                                onSuccess: () => {
+                                                                                    setNotification({
+                                                                                        message: 'Order cancelled successfully',
+                                                                                        type: 'success',
+                                                                                        visible: true
+                                                                                    });
+                                                                                },
+                                                                                onError: (errors) => {
+                                                                                    setNotification({
+                                                                                        message: errors.message || 'Failed to cancel order',
+                                                                                        type: 'error',
+                                                                                        visible: true
+                                                                                    });
+                                                                                }
+                                                                            });
                                                                         }
                                                                     }}
                                                                     className="text-gray-600 hover:text-gray-900 mr-4 inline-flex items-center"
@@ -328,7 +359,22 @@ export default function MyOrders({ auth, orders, pendingOrdersCount, flash }) {
                                                                                         if (confirm('Are you sure you want to cancel this order?')) {
                                                                                             const modal = document.getElementById(`order-details-${order.id}`);
                                                                                             modal.classList.add('hidden');
-                                                                                            router.post(route('orders.cancel', order.id));
+                                                                                            router.post(route('orders.cancel', order.id), {}, {
+                                                                                                onSuccess: () => {
+                                                                                                    setNotification({
+                                                                                                        message: 'Order cancelled successfully',
+                                                                                                        type: 'success',
+                                                                                                        visible: true
+                                                                                                    });
+                                                                                                },
+                                                                                                onError: (errors) => {
+                                                                                                    setNotification({
+                                                                                                        message: errors.message || 'Failed to cancel order',
+                                                                                                        type: 'error',
+                                                                                                        visible: true
+                                                                                                    });
+                                                                                                }
+                                                                                            });
                                                                                         }
                                                                                     }}
                                                                                     className="ml-4 bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded focus:outline-none"

@@ -219,12 +219,10 @@ export default function Meals({ meals, hiddenMeals, success, error }) {
 						setImagePreview(null);
 						setEditingMeal(null);
 						setShowModal(false);
-						
-						// Force page reload after a brief delay to ensure server has processed the image
-						setTimeout(() => {
-							window.location.reload(); // Reload the page to show updated images
-						}, 100);
 					},
+					preserveScroll: true,
+					preserveState: false, // Don't preserve state to prevent unwanted redirects
+					replace: true, // Use replace to avoid browser history issues
 					onError: (errors) => {
 						console.error('Error updating meal:', errors);
 						// Show error message
@@ -254,8 +252,10 @@ export default function Meals({ meals, hiddenMeals, success, error }) {
 					},
 					forceFormData: true, // Critical for file uploads
 					preserveState: false, // Don't preserve state to ensure clean reload
+					preserveScroll: true,
+					replace: true, // Use replace to avoid browser history issues
 					headers: {
-						'Accept': 'application/json',
+						'Accept': 'text/html, application/xhtml+xml',
 						'X-Requested-With': 'XMLHttpRequest',
 						// Don't set Content-Type - it will be set automatically with boundary for multipart/form-data
 					},
@@ -265,25 +265,20 @@ export default function Meals({ meals, hiddenMeals, success, error }) {
 					onSuccess: () => {
 						console.log('Meal created successfully');
 						
-						// First close the modal
+						// Just close the modal - no need for setTimeout as Inertia will handle the redirect
 						setShowModal(false);
 						
-						// Then reset state and clear inputs
-						setTimeout(() => {
-							// Clear the file input physically
-							const fileInput = document.getElementById('image');
-							if (fileInput) fileInput.value = '';
-							
-							// Reset form data
-							reset();
-							setImagePreview(null);
-							setEditingMeal(null);
-							
-							// Show success message
-							setFormMessage({ type: 'success', text: 'Meal created successfully!' });
-							setTimeout(() => setFormMessage(null), 3000);
-						}, 100);
+						// Reset form data
+						reset();
+						setImagePreview(null);
+						setEditingMeal(null);
+						
+						// Show success message for the user
+						setFormMessage({ type: 'success', text: 'Meal created successfully!' });
 					},
+					preserveScroll: true,
+					preserveState: false, // Don't preserve state to prevent unwanted redirects
+					replace: true, // Use replace to avoid browser history issues
 					onError: (errors) => {
 						console.error('Error creating meal:', errors);
 						
@@ -298,8 +293,11 @@ export default function Meals({ meals, hiddenMeals, success, error }) {
 					},
 					forceFormData: true,
 					preserveState: false,
+					preserveScroll: true,
+					replace: true, // Use replace to avoid browser history issues
 					headers: {
-						'Accept': 'application/json',
+						'Accept': 'text/html, application/xhtml+xml',
+						'X-Requested-With': 'XMLHttpRequest',
 					},
 				});
 			}

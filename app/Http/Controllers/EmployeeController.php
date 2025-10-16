@@ -226,6 +226,7 @@ class EmployeeController extends Controller
                 'updated_at' => $meal->updated_at
             ]);
             
+            // Force explicit route to employee.meals to prevent any redirection issues
             return redirect()
                 ->route('employee.meals')
                 ->with('success', 'Meal updated successfully.');

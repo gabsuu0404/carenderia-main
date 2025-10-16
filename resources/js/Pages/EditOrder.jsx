@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, useForm, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import Notification from '@/Components/Notification';
 
-export default function EditOrder({ auth, order, foodPaxDishes, filipinoDesserts, dbMeals }) {
+export default function EditOrder({ auth, order, foodPaxDishes, fiestaDishes, filipinoDesserts, dbMeals }) {
     // Check package type to determine which form to show
     const isFoodPax = order.package_id === 6;
     const isFiestaPackage = order.package_id === 1;
     const isSingleMeal = order.package_id === 5;
+    
+    // Set up notification state
+    const [notification, setNotification] = useState({
+        message: '',
+        type: 'success',
+        visible: false
+    });
     
     // Set up state for selections
     const [selectedDishes, setSelectedDishes] = useState([]);
@@ -17,9 +25,16 @@ export default function EditOrder({ auth, order, foodPaxDishes, filipinoDesserts
     // For Single Meal, we need to track the selected dish
     const [selectedMeal, setSelectedMeal] = useState(null);
     
+    // Format the date properly to YYYY-MM-DD for the date input
+    const formatDateForInput = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toISOString().split('T')[0];
+    };
+
     // Initialize form with order data
     const { data, setData, put, processing, errors } = useForm({
-        delivery_date: order.delivery_date,
+        delivery_date: formatDateForInput(order.delivery_date),
         delivery_address: order.delivery_address,
         number_of_pax: order.number_of_pax,
         selected_dishes: order.selected_dishes,
@@ -37,8 +52,8 @@ export default function EditOrder({ auth, order, foodPaxDishes, filipinoDesserts
                 dishMapping[dish.name] = dish.id;
             });
         } else if (isFiestaPackage) {
-            // For Fiesta Package, use filipinoDishes
-            dbMeals.forEach(dish => {
+            // For Fiesta Package, use fiestaDishes
+            fiestaDishes.forEach(dish => {
                 dishMapping[dish.name] = dish.id;
             });
         } else if (isSingleMeal) {
@@ -117,18 +132,19 @@ export default function EditOrder({ auth, order, foodPaxDishes, filipinoDesserts
             const newSelection = selectedDishes.filter(id => id !== dishId);
             setSelectedDishes(newSelection);
             
-            // Update form data
-            const dishNames = newSelection.map(id => {
-                if (isFoodPax) {
-                    const dish = foodPaxDishes.find(d => d.id === id);
-                    return dish ? dish.name : null;
-                } else {
-                    const dish = dbMeals.find(d => d.id === id);
-                    return dish ? dish.name : null;
-                }
-            }).filter(name => name);
-            
-            setData('selected_dishes', dishNames);
+        // Update form data
+        const dishNames = newSelection.map(id => {
+            if (isFoodPax) {
+                const dish = foodPaxDishes.find(d => d.id === id);
+                return dish ? dish.name : null;
+            } else if (isFiestaPackage) {
+                const dish = fiestaDishes.find(d => d.id === id);
+                return dish ? dish.name : null;
+            } else {
+                const dish = dbMeals.find(d => d.id === id);
+                return dish ? dish.name : null;
+            }
+        }).filter(name => name);            setData('selected_dishes', dishNames);
             return;
         }
         
@@ -146,6 +162,9 @@ export default function EditOrder({ auth, order, foodPaxDishes, filipinoDesserts
         const dishNames = newSelection.map(id => {
             if (isFoodPax) {
                 const dish = foodPaxDishes.find(d => d.id === id);
+                return dish ? dish.name : null;
+            } else if (isFiestaPackage) {
+                const dish = fiestaDishes.find(d => d.id === id);
                 return dish ? dish.name : null;
             } else {
                 const dish = dbMeals.find(d => d.id === id);
@@ -197,10 +216,35 @@ export default function EditOrder({ auth, order, foodPaxDishes, filipinoDesserts
     // Handle form submission
     const handleSubmit = (e) => {
         e.preventDefault();
+        
+        // Show processing notification
+        setNotification({
+            message: 'Saving your order changes...',
+            type: 'info',
+            visible: true
+        });
+        
         put(route('orders.update', order.id), {
             onSuccess: () => {
-                // Use history.back() to navigate back after successful form submission
-                window.history.back();
+                // Show success notification
+                setNotification({
+                    message: 'Order updated successfully!',
+                    type: 'success',
+                    visible: true
+                });
+                
+                // Redirect to the my-orders page directly instead of using window.history.back()
+                window.location.href = route('my.orders');
+            },
+            onError: (errors) => {
+                // Show error notification
+                setNotification({
+                    message: 'There was a problem updating your order. Please check the form and try again.',
+                    type: 'error',
+                    visible: true
+                });
+                
+                console.error('Order update errors:', errors);
             }
         });
     };
@@ -217,6 +261,15 @@ export default function EditOrder({ auth, order, foodPaxDishes, filipinoDesserts
             header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">Edit Order</h2>}
         >
             <Head title="Edit Order" />
+            
+            {/* Show notification when visible */}
+            {notification.visible && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onClose={() => setNotification({...notification, visible: false})}
+                />
+            )}
             
             <div className="py-12">
                 <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -301,7 +354,7 @@ export default function EditOrder({ auth, order, foodPaxDishes, filipinoDesserts
                                             <p className="text-sm text-gray-500">Selected: {selectedDishes.length}/{getMaxDishes()}</p>
                                             
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-                                                {dbMeals.map((dish) => (
+                                                {fiestaDishes.map((dish) => (
                                                     <div 
                                                         key={dish.id}
                                                         onClick={() => toggleDishSelection(dish.id)}
@@ -440,9 +493,17 @@ export default function EditOrder({ auth, order, foodPaxDishes, filipinoDesserts
                                                 value={data.delivery_date}
                                                 onChange={handleInputChange}
                                                 min={(() => {
-                                                    const tomorrow = new Date();
-                                                    tomorrow.setDate(tomorrow.getDate() + 1);
-                                                    return tomorrow.toISOString().split('T')[0];
+                                                    // Allow the existing date or today (whichever is earlier)
+                                                    const today = new Date();
+                                                    today.setHours(0, 0, 0, 0);
+                                                    
+                                                    // If we have an existing date that's before today, use that
+                                                    const existingDate = new Date(data.delivery_date);
+                                                    if (existingDate < today) {
+                                                        return data.delivery_date;
+                                                    }
+                                                    
+                                                    return today.toISOString().split('T')[0];
                                                 })()}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                                                 required
