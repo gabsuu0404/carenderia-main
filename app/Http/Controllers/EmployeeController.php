@@ -8,6 +8,7 @@ use App\Models\Inventory;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -91,17 +92,57 @@ class EmployeeController extends Controller
      */
     public function storeMeal(Request $request): RedirectResponse
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
+        // Log the received request data
+        \Log::info('Creating new meal', [
+            'request_data' => $request->all(),
+            'has_file' => $request->hasFile('image')
+        ]);
+        
+        // Make validation less strict - if name or price are empty strings, convert them to defaults
+        if ($request->has('name') && empty($request->name)) {
+            $request->merge(['name' => 'Untitled Meal']);
+        }
+        
+        if ($request->has('price') && (empty($request->price) || !is_numeric($request->price))) {
+            $request->merge(['price' => 0]);
+        }
+        
+        // Validate the request - outside try/catch for proper validation errors
+        $validated = $request->validate([
+            'name' => 'string|max:255',
             'description' => 'nullable|string',
-            'price' => 'required|numeric|min:0',
+            'price' => 'numeric|min:0',
             'category' => 'nullable|string|max:255',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'is_available' => 'boolean',
         ]);
-
-        Meal::create($request->all());
-
-        return redirect()->route('employee.meals')->with('success', 'Meal created successfully.');
+        
+        try {
+            // Process the data
+            $mealData = $request->except('image');
+            
+            // Handle image upload
+            if ($request->hasFile('image')) {
+                $imagePath = $request->file('image')->store('meals', 'public');
+                $mealData['image'] = $imagePath;
+                
+                \Log::info('Image uploaded successfully', ['path' => $imagePath]);
+            }
+            
+            // Create the meal
+            $meal = Meal::create($mealData);
+            
+            \Log::info('Meal created successfully', ['meal_id' => $meal->id]);
+            
+            return redirect()->route('employee.meals')->with('success', 'Meal created successfully.');
+        } catch (\Exception $e) {
+            \Log::error('Error creating meal', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return redirect()->back()->withErrors(['error' => 'Failed to create meal: ' . $e->getMessage()]);
+        }
     }
 
     /**
@@ -109,17 +150,97 @@ class EmployeeController extends Controller
      */
     public function updateMeal(Request $request, Meal $meal): RedirectResponse
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
+        \Log::info('========== STARTING MEAL UPDATE ==========');
+        \Log::info('Initial request data:', [
+            'meal_id' => $meal->id,
+            'has_file' => $request->hasFile('image'),
+            'has_update_flag' => $request->has('update_image'),
+            'keep_existing' => $request->has('keep_existing_image'),
+            'content_type' => $request->header('Content-Type')
+        ]);
+        
+        // Validate the request with relaxed validation
+        $validated = $request->validate([
+            'name' => 'nullable|string|max:255',
             'description' => 'nullable|string',
-            'price' => 'required|numeric|min:0',
+            'price' => 'nullable|numeric|min:0',
             'category' => 'nullable|string|max:255',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'is_available' => 'boolean',
         ]);
-
-        $meal->update($request->all());
-
-        return redirect()->route('employee.meals')->with('success', 'Meal updated successfully.');
+        
+        try {
+            // Start with the non-file data
+            $mealData = $request->except(['image', 'update_image', 'keep_existing_image']);
+            
+            // Handle image update
+            if ($request->hasFile('image') && $request->has('update_image')) {
+                \Log::info('Processing new image upload');
+                
+                $file = $request->file('image');
+                if ($file->isValid()) {
+                    // Delete old image if it exists
+                    if ($meal->image && Storage::disk('public')->exists($meal->image)) {
+                        \Log::info('Deleting old image: ' . $meal->image);
+                        Storage::disk('public')->delete($meal->image);
+                    }
+                    
+                    // Generate unique filename
+                    $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+                    
+                    // Store new image
+                    $imagePath = $file->storeAs('meals', $filename, 'public');
+                    if (!$imagePath) {
+                        throw new \Exception('Failed to store the image');
+                    }
+                    
+                    $mealData['image'] = $imagePath;
+                    \Log::info('New image saved: ' . $imagePath);
+                } else {
+                    throw new \Exception('Invalid image file uploaded');
+                }
+            } elseif (!$request->has('keep_existing_image')) {
+                // If neither updating nor keeping existing, remove the image
+                if ($meal->image && Storage::disk('public')->exists($meal->image)) {
+                    Storage::disk('public')->delete($meal->image);
+                }
+                $mealData['image'] = null;
+            }
+            // else keep the existing image (do nothing with image field)
+            
+            \Log::info('Updating meal data', ['data' => $mealData]);
+            
+            // Update the meal
+            $updated = $meal->update($mealData);
+            
+            if (!$updated) {
+                throw new \Exception('Failed to update meal record');
+            }
+            
+            // Force refresh from database to ensure we have latest data
+            $meal->refresh();
+            
+            \Log::info('Meal updated successfully', [
+                'id' => $meal->id,
+                'image' => $meal->image,
+                'updated_at' => $meal->updated_at
+            ]);
+            
+            return redirect()
+                ->route('employee.meals')
+                ->with('success', 'Meal updated successfully.');
+            
+        } catch (\Exception $e) {
+            \Log::error('Failed to update meal', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return redirect()
+                ->back()
+                ->withInput()
+                ->withErrors(['error' => 'Failed to update meal: ' . $e->getMessage()]);
+        }
     }
 
     /**
@@ -344,5 +465,30 @@ public function storeInventory(Request $request)
         return Inertia::render('Employee/Orders', [
             'orders' => $orders
         ]);
+    }
+    
+    /**
+     * Get a human-readable error message for file upload error codes
+     */
+    private function getUploadErrorMessage(int $errorCode): string
+    {
+        switch ($errorCode) {
+            case UPLOAD_ERR_INI_SIZE:
+                return 'The uploaded file exceeds the upload_max_filesize directive in php.ini';
+            case UPLOAD_ERR_FORM_SIZE:
+                return 'The uploaded file exceeds the MAX_FILE_SIZE directive in the HTML form';
+            case UPLOAD_ERR_PARTIAL:
+                return 'The uploaded file was only partially uploaded';
+            case UPLOAD_ERR_NO_FILE:
+                return 'No file was uploaded';
+            case UPLOAD_ERR_NO_TMP_DIR:
+                return 'Missing a temporary folder';
+            case UPLOAD_ERR_CANT_WRITE:
+                return 'Failed to write file to disk';
+            case UPLOAD_ERR_EXTENSION:
+                return 'A PHP extension stopped the file upload';
+            default:
+                return 'Unknown upload error';
+        }
     }
 }
