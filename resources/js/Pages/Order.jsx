@@ -2,6 +2,7 @@ import { Head, useForm } from '@inertiajs/react';
 import { useState, Fragment, useEffect } from 'react';
 import axios from 'axios';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import Notification from '@/Components/Notification';
 
 export default function Order({ auth, dbMeals = [] }) {
     const [selectedOption, setSelectedOption] = useState('All Occasions');
@@ -13,6 +14,9 @@ export default function Order({ auth, dbMeals = [] }) {
     const [selectedSet, setSelectedSet] = useState(null);
     const [currentPackage, setCurrentPackage] = useState(null);
     const [currentDishIndex, setCurrentDishIndex] = useState(0);
+    
+    // Notification state
+    const [notification, setNotification] = useState({ message: '', type: 'success', visible: false });
     
     // Track whether we're using database meals or hardcoded meals
     const [useDatabaseMeals, setUseDatabaseMeals] = useState(true);
@@ -88,6 +92,25 @@ export default function Order({ auth, dbMeals = [] }) {
         { id: 110, name: 'Chicken Inasal', description: 'Grilled chicken marinated in vinegar, lime, and spices' },
         { id: 111, name: 'Pinakbet', description: 'Mixed vegetables sautéed in shrimp paste' },
         { id: 112, name: 'Nilaga', description: 'Clear beef soup with vegetables and potatoes' }
+    ];
+    
+    // Dedicated Filipino dishes for Fiesta Package (not from meal management)
+    const fiestaDishes = [
+        { id: 201, name: 'Pork Adobo', description: 'Classic Filipino dish with pork cooked in soy sauce, vinegar, and spices' },
+        { id: 202, name: 'Chicken Tinola', description: 'Ginger-based soup with chicken, green papaya, and chili leaves' },
+        { id: 203, name: 'Beef Kaldereta', description: 'Rich beef stew with liver spread, bell peppers, and potatoes' },
+        { id: 204, name: 'Pork Sinigang', description: 'Tamarind-based sour soup with pork and vegetables' },
+        { id: 205, name: 'Chicken Afritada', description: 'Tomato-based stew with chicken, potatoes, and carrots' },
+        { id: 206, name: 'Beef Mechado', description: 'Filipino-style beef pot roast with tomato sauce' },
+        { id: 207, name: 'Pancit Bihon', description: 'Stir-fried rice noodles with meat and vegetables' },
+        { id: 208, name: 'Lumpiang Shanghai', description: 'Filipino-style spring rolls filled with ground pork' },
+        { id: 209, name: 'Pork Menudo', description: 'Diced pork stew with potatoes, carrots, and liver spread' },
+        { id: 210, name: 'Chicken Inasal', description: 'Grilled chicken marinated in vinegar, lime, and spices' },
+        { id: 211, name: 'Pinakbet', description: 'Mixed vegetables sautéed in shrimp paste' },
+        { id: 212, name: 'Nilaga', description: 'Clear beef soup with vegetables and potatoes' },
+        { id: 213, name: 'Kare-Kare', description: 'Philippine stew with oxtail and vegetables in rich peanut sauce' },
+        { id: 214, name: 'Lechon Kawali', description: 'Deep-fried crispy pork belly' },
+        { id: 215, name: 'Bistek Tagalog', description: 'Filipino-style beef steak with citrus and soy sauce' }
     ];
     
     // List of Filipino desserts
@@ -250,12 +273,21 @@ export default function Order({ auth, dbMeals = [] }) {
                 day: 'numeric'
             });
             
+            // Create the order data with proper price
+            const packagePrice = 500; // Base price for Food Pax per pax
+            
             // Create the order data
             const orderData = {
-                package: currentPackage,
+                package: {
+                    ...currentPackage,
+                    price: packagePrice.toString() // Add price field to match backend validation
+                },
                 dishes: selectedDishNames,
                 customerInfo: customerInfo
             };
+            
+            // Debug the order data before sending
+            console.log('Submitting Food Pax order data:', orderData);
             
             // Send the order to the server using the web route
             axios.post(route('orders.store'), orderData, {
@@ -269,12 +301,34 @@ export default function Order({ auth, dbMeals = [] }) {
                     setIsSubmitting(false);
                     setSubmitSuccess(true);
                     setShowFoodPaxModal(false);
-                    alert(`Order placed for ${customerInfo.numberOfPax} pax with: ${selectedDishNames.join(' and ')}.\nDelivery scheduled for ${formattedDate}.`);
+                    setNotification({
+                        message: `Order placed for ${customerInfo.numberOfPax} pax with: ${selectedDishNames.join(' and ')}. Delivery scheduled for ${formattedDate}.`,
+                        type: 'success',
+                        visible: true
+                    });
                 })
                 .catch(error => {
                     console.error('Order creation failed:', error);
+                    
+                    // Add more detailed error logging
+                    if (error.response) {
+                        console.error('Error response data:', error.response.data);
+                        console.error('Error response status:', error.response.status);
+                        console.error('Error response headers:', error.response.headers);
+                    } else if (error.request) {
+                        console.error('Error request:', error.request);
+                    } else {
+                        console.error('Error message:', error.message);
+                    }
+                    
+                    const errorMessage = error.response?.data?.message || 'Failed to place order. Please try again.';
                     setIsSubmitting(false);
-                    setSubmitError(error.response?.data?.message || 'Failed to place order. Please try again.');
+                    setSubmitError(errorMessage);
+                    setNotification({
+                        message: errorMessage,
+                        type: 'error',
+                        visible: true
+                    });
                 });
         }
     };
@@ -335,7 +389,11 @@ export default function Order({ auth, dbMeals = [] }) {
                     setIsSubmitting(false);
                     setSubmitSuccess(true);
                     setShowSingleMealModal(false);
-                    alert(`Single meal order placed: ${mealQuantity}x ${selectedDish.name}\nTotal: ₱${totalPrice}\nDelivery scheduled for ${formattedDate}.`);
+                    setNotification({
+                        message: `Single meal order placed: ${mealQuantity}x ${selectedDish.name}. Total: ₱${totalPrice}. Delivery scheduled for ${formattedDate}.`,
+                        type: 'success',
+                        visible: true
+                    });
                 })
                 .catch(error => {
                     console.error('Order creation failed:', error);
@@ -383,7 +441,7 @@ export default function Order({ auth, dbMeals = [] }) {
             
             // Get the selected dish and dessert names
             const selectedDishNames = selectedDishes.map(id => 
-                filipinoDishes.find(dish => dish.id === id).name
+                fiestaDishes.find(dish => dish.id === id).name
             );
             
             const selectedDessertNames = selectedDesserts.map(id => 
@@ -438,11 +496,11 @@ export default function Order({ auth, dbMeals = [] }) {
                     setIsSubmitting(false);
                     setSubmitSuccess(true);
                     setShowFiestaModal(false);
-                    alert(`Filipino Fiesta Package Set ${selectedSet} ordered for ${customerInfo.numberOfPax} pax.\n` +
-                          `Main item: ${mainItem}\n` +
-                          `Selected dishes: ${selectedDishNames.join(', ')}\n` +
-                          `Selected desserts: ${selectedDessertNames.join(', ')}\n` +
-                          `Delivery scheduled for ${formattedDate}.`);
+                    setNotification({
+                        message: `Filipino Fiesta Package Set ${selectedSet} ordered for ${customerInfo.numberOfPax} pax. Main item: ${mainItem}. Selected dishes: ${selectedDishNames.join(', ')}. Selected desserts: ${selectedDessertNames.join(', ')}. Delivery scheduled for ${formattedDate}.`,
+                        type: 'success',
+                        visible: true
+                    });
                 })
                 .catch(error => {
                     console.error('Order creation failed:', error);
@@ -1114,7 +1172,7 @@ export default function Order({ auth, dbMeals = [] }) {
                                         </p>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                        {filipinoDishes.map((dish) => (
+                                        {fiestaDishes.map((dish) => (
                                             <div 
                                                 key={dish.id}
                                                 onClick={() => toggleDishSelection(dish.id)}
@@ -1316,6 +1374,13 @@ export default function Order({ auth, dbMeals = [] }) {
                         )}
                     </div>
                 </div>
+            )}
+            {notification.visible && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onClose={() => setNotification({ ...notification, visible: false })}
+                />
             )}
         </AuthenticatedLayout>
     );
