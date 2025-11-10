@@ -50,6 +50,15 @@ Route::middleware(['auth', 'user.status'])->group(function () {
     Route::get('/my-orders/{id}/edit', [App\Http\Controllers\OrderController::class, 'edit'])->name('orders.edit');
     Route::put('/my-orders/{id}', [App\Http\Controllers\OrderController::class, 'update'])->name('orders.update');
     Route::post('/my-orders/{id}/cancel', [App\Http\Controllers\OrderController::class, 'cancel'])->name('orders.cancel');
+    
+    // Cart routes
+    Route::get('/cart', [App\Http\Controllers\CartController::class, 'index'])->name('cart.index');
+    Route::post('/cart', [App\Http\Controllers\CartController::class, 'store'])->name('cart.store');
+    Route::get('/cart/count', [App\Http\Controllers\CartController::class, 'getCount'])->name('cart.count');
+    Route::get('/cart/{id}/edit', [App\Http\Controllers\CartController::class, 'edit'])->name('cart.edit');
+    Route::delete('/cart/{id}', [App\Http\Controllers\CartController::class, 'destroy'])->name('cart.destroy');
+    Route::put('/cart/{id}', [App\Http\Controllers\CartController::class, 'update'])->name('cart.update');
+    Route::post('/cart/checkout', [App\Http\Controllers\CartController::class, 'checkout'])->name('cart.checkout');
 });
 
 // Admin area (example protected route)

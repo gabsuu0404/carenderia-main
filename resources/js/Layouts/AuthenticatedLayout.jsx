@@ -32,6 +32,9 @@ export default function Authenticated({ auth, header, children }) {
                                 <NavLink href={route('order')} active={route().current('order')}>
                                     Order Now
                                 </NavLink>
+                                <NavLink href={route('my.orders')} active={route().current('my.orders')}>
+                                    My Orders
+                                </NavLink>
                             </div>
                         </div>
 
@@ -69,7 +72,6 @@ export default function Authenticated({ auth, header, children }) {
 
                                     <Dropdown.Content>
                                         <Dropdown.Link href={route('profile.edit')}>Profile</Dropdown.Link>
-                                        <Dropdown.Link href={route('my.orders')}>My Orders</Dropdown.Link>
                                         <Dropdown.Link href={route('logout')} method="post" as="button">
                                             Log Out
                                         </Dropdown.Link>
@@ -115,6 +117,9 @@ export default function Authenticated({ auth, header, children }) {
                         <ResponsiveNavLink href={route('order')} active={route().current('order')}>
                             Order Now
                         </ResponsiveNavLink>
+                        <ResponsiveNavLink href={route('my.orders')} active={route().current('my.orders')}>
+                            My Orders
+                        </ResponsiveNavLink>
                     </div>
 
                     <div className="pt-4 pb-1 border-t border-gray-200">
@@ -127,12 +132,6 @@ export default function Authenticated({ auth, header, children }) {
 
                         <div className="mt-3 space-y-1">
                             <ResponsiveNavLink href={route('profile.edit')}>Profile</ResponsiveNavLink>
-                            <ResponsiveNavLink href={route('my.orders')}>
-                                <div className="flex items-center">
-                                    <span>My Orders</span>
-                                    <CartIcon />
-                                </div>
-                            </ResponsiveNavLink>
                             <ResponsiveNavLink method="post" href={route('logout')} as="button">
                                 Log Out
                             </ResponsiveNavLink>

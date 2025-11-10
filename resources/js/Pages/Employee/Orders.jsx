@@ -586,7 +586,56 @@ export default function Orders({ auth, orders = [] }) {
                                             <span className="text-gray-500">Delivery Address:</span>
                                             <span className="font-medium text-right break-words max-w-[200px]">{viewingOrder.delivery_address}</span>
                                         </div>
+                                        {viewingOrder.delivery_time && (
+                                            <div className="flex justify-between">
+                                                <span className="text-gray-500">Delivery Time:</span>
+                                                <span className="font-medium">{viewingOrder.delivery_time}</span>
+                                            </div>
+                                        )}
                                     </div>
+                                </div>
+                            </div>
+                            
+                            {/* Payment Information */}
+                            <div className="mt-6 bg-gray-50 p-4 rounded-lg">
+                                <h4 className="font-medium text-lg mb-4">Payment Information</h4>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-gray-500">Payment Method:</span>
+                                        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                                            viewingOrder.payment_method === 'GCash' 
+                                                ? 'bg-blue-100 text-blue-800' 
+                                                : 'bg-green-100 text-green-800'
+                                        }`}>
+                                            {viewingOrder.payment_method || 'COD'}
+                                        </span>
+                                    </div>
+                                    
+                                    {viewingOrder.payment_method === 'GCash' && (
+                                        <>
+                                            {viewingOrder.gcash_number && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-500">GCash Number:</span>
+                                                    <span className="font-medium">{viewingOrder.gcash_number}</span>
+                                                </div>
+                                            )}
+                                            
+                                            {viewingOrder.gcash_receipt && (
+                                                <div className="mt-3">
+                                                    <p className="text-gray-500 mb-2">Payment Receipt:</p>
+                                                    <div className="border-2 border-gray-200 rounded-lg p-2 bg-white">
+                                                        <img 
+                                                            src={`/storage/${viewingOrder.gcash_receipt}`}
+                                                            alt="GCash Payment Receipt"
+                                                            className="w-full h-auto max-h-96 object-contain rounded cursor-pointer hover:opacity-90 transition-opacity"
+                                                            onClick={() => window.open(`/storage/${viewingOrder.gcash_receipt}`, '_blank')}
+                                                        />
+                                                        <p className="text-xs text-gray-500 mt-2 text-center">Click image to view full size</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
                             </div>
                             

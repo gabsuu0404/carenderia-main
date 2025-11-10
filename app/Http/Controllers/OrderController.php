@@ -90,7 +90,9 @@ class OrderController extends Controller
                     'main_item' => $order->main_item,
                     'total_amount' => $order->total_amount,
                     'delivery_date' => $order->delivery_date,
+                    'delivery_time' => $order->delivery_time,
                     'delivery_address' => $order->delivery_address,
+                    'notes' => $order->notes,
                     'selected_dishes' => $selectedDishes,
                     'selected_desserts' => $selectedDesserts,
                     'status' => $order->status,
@@ -205,7 +207,9 @@ class OrderController extends Controller
             'main_item' => $order->main_item,
             'total_amount' => $order->total_amount,
             'delivery_date' => $order->delivery_date,
+            'delivery_time' => $order->delivery_time,
             'delivery_address' => $order->delivery_address,
+            'notes' => $order->notes,
             'number_of_pax' => $order->number_of_pax,
             'selected_dishes' => $selectedDishes,
             'selected_desserts' => $selectedDesserts,
@@ -302,7 +306,9 @@ class OrderController extends Controller
         // Validate the update request
         $validated = $request->validate([
             'delivery_date' => 'required|date|after_or_equal:today',
+            'delivery_time' => 'required|date_format:H:i',
             'delivery_address' => 'required|string',
+            'notes' => 'nullable|string',
             'number_of_pax' => 'required|integer|min:1',
             'selected_dishes' => 'required|array',
             'selected_dishes.*' => 'string',
@@ -321,7 +327,9 @@ class OrderController extends Controller
         
         // Update the order
         $order->delivery_date = $request->input('delivery_date');
+        $order->delivery_time = $request->input('delivery_time');
         $order->delivery_address = $request->input('delivery_address');
+        $order->notes = $request->input('notes');
         $order->number_of_pax = $request->input('number_of_pax');
         $order->selected_dishes = json_encode($request->input('selected_dishes'));
         
@@ -380,7 +388,12 @@ class OrderController extends Controller
             'customerInfo.email' => 'required|email',
             'customerInfo.phone' => 'nullable|string',
             'customerInfo.address' => 'required|string',
+            'customerInfo.note' => 'nullable|string',
             'customerInfo.deliveryDate' => 'required|date|after:today',
+            'customerInfo.deliveryTime' => 'required|date_format:H:i',
+            'customerInfo.paymentMethod' => 'required|string|in:COD,GCash',
+            'customerInfo.gcashNumber' => 'required_if:customerInfo.paymentMethod,GCash|nullable|string',
+            'customerInfo.gcashReceipt' => 'required_if:customerInfo.paymentMethod,GCash|nullable|image|max:5120',
         ];
         
         // Check if this is a Filipino Fiesta Package order (has set and desserts)
@@ -461,6 +474,12 @@ class OrderController extends Controller
             $totalAmount = $numericPrice * $request->input('customerInfo.numberOfPax');
         }
 
+        // Handle GCash receipt upload
+        $gcashReceiptPath = null;
+        if ($request->input('customerInfo.paymentMethod') === 'GCash' && $request->hasFile('customerInfo.gcashReceipt')) {
+            $gcashReceiptPath = $request->file('customerInfo.gcashReceipt')->store('receipts', 'public');
+        }
+
         // Prepare order data
         $orderData = [
             'user_id' => Auth::id(),
@@ -469,12 +488,17 @@ class OrderController extends Controller
             'customer_phone' => $request->input('customerInfo.phone'),
             'delivery_address' => $request->input('customerInfo.address'),
             'delivery_date' => $request->input('customerInfo.deliveryDate'),
+            'delivery_time' => $request->input('customerInfo.deliveryTime'),
             'package_id' => $request->input('package.id'),
             'package_name' => $request->input('package.name'),
             'package_price' => $numericPrice,
             'number_of_pax' => $request->input('customerInfo.numberOfPax'),
             'selected_dishes' => json_encode($request->input('dishes')), // Make sure dishes are properly JSON encoded
             'total_amount' => $totalAmount,
+            'notes' => $request->input('customerInfo.note'),
+            'payment_method' => $request->input('customerInfo.paymentMethod'),
+            'gcash_number' => $request->input('customerInfo.gcashNumber'),
+            'gcash_receipt' => $gcashReceiptPath,
             'status' => 'pending'
         ];
         
