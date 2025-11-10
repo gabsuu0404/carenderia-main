@@ -5,53 +5,37 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Order extends Model
+class Cart extends Model
 {
     use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'user_id',
-        'customer_name',
-        'customer_email',
-        'customer_phone',
-        'delivery_address',
-        'delivery_date',
-        'delivery_time',
         'package_id',
         'package_name',
+        'package_price',
         'package_set',
         'main_item',
-        'package_price',
+        'quantity',
         'number_of_pax',
         'selected_dishes',
         'selected_desserts',
-        'total_amount',
-        'status',
+        'delivery_date',
+        'delivery_time',
+        'delivery_address',
         'notes',
+        'total_amount',
         'payment_method',
         'gcash_number',
         'gcash_receipt'
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
     protected $casts = [
-        'delivery_date' => 'date',
         'selected_dishes' => 'array',
         'selected_desserts' => 'array',
+        'delivery_date' => 'date',
     ];
 
-    /**
-     * Get the user who placed the order.
-     */
     public function user()
     {
         return $this->belongsTo(User::class);

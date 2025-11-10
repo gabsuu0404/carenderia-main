@@ -335,6 +335,13 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                         </div>
                                                                     </div>
                                                                     
+                                                                    {order.notes && (
+                                                                        <div className="mb-4">
+                                                                            <div className="font-medium">Note</div>
+                                                                            <div className="text-gray-800 whitespace-pre-wrap">{order.notes}</div>
+                                                                        </div>
+                                                                    )}
+                                                                    
                                                                     <div className="mt-6 border-t border-gray-200 pt-4">
                                                                         <div className="flex justify-between font-bold">
                                                                             <div>Total Amount:</div>

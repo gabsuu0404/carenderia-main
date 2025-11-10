@@ -3,6 +3,7 @@ import { useState, Fragment, useEffect } from 'react';
 import axios from 'axios';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Notification from '@/Components/Notification';
+import GCashPaymentModal from '@/Components/GCashPaymentModal';
 
 export default function Order({ auth, dbMeals = [] }) {
     const [selectedOption, setSelectedOption] = useState('All Occasions');
@@ -17,6 +18,9 @@ export default function Order({ auth, dbMeals = [] }) {
     
     // Notification state
     const [notification, setNotification] = useState({ message: '', type: 'success', visible: false });
+    
+    // GCash payment modal state
+    const [showGCashModal, setShowGCashModal] = useState(false);
     
     // Track whether we're using database meals or hardcoded meals
     const [useDatabaseMeals, setUseDatabaseMeals] = useState(true);
@@ -36,8 +40,13 @@ export default function Order({ auth, dbMeals = [] }) {
         email: auth.user?.email || '',
         phone: auth.user?.phone || '',
         address: '',
+        note: '',
         numberOfPax: 1,
-        deliveryDate: getTomorrowDate() // Default to tomorrow's date
+        deliveryDate: getTomorrowDate(), // Default to tomorrow's date
+        deliveryTime: '', // Delivery time field
+        paymentMethod: 'COD', // Payment method
+        gcashNumber: '',
+        gcashReceipt: null
     });
     
     // Helper function to get tomorrow's date in YYYY-MM-DD format
@@ -214,10 +223,57 @@ export default function Order({ auth, dbMeals = [] }) {
     // Handle customer info updates
     const handleCustomerInfoChange = (e) => {
         const { name, value } = e.target;
+        
+        // If payment method changed to GCash, open the modal
+        if (name === 'paymentMethod' && value === 'GCash') {
+            setShowGCashModal(true);
+        }
+        
+        // If payment method changed to COD, clear GCash data
+        if (name === 'paymentMethod' && value === 'COD') {
+            setCustomerInfo(prev => ({
+                ...prev,
+                paymentMethod: value,
+                gcashNumber: '',
+                gcashReceipt: null
+            }));
+            return;
+        }
+        
         setCustomerInfo(prev => ({
             ...prev,
             [name]: value
         }));
+    };
+    
+    // Handle GCash payment info submission
+    const handleGCashSubmit = ({ gcashNumber, receiptFile }) => {
+        setCustomerInfo(prev => ({
+            ...prev,
+            paymentMethod: 'GCash',
+            gcashNumber: gcashNumber,
+            gcashReceipt: receiptFile
+        }));
+        setShowGCashModal(false);
+        
+        // Show success notification
+        setNotification({
+            message: 'GCash payment information saved successfully!',
+            type: 'success',
+            visible: true
+        });
+    };
+    
+    // Handle GCash modal close
+    const handleGCashModalClose = () => {
+        // Reset payment method to COD if modal is closed without submitting
+        setCustomerInfo(prev => ({
+            ...prev,
+            paymentMethod: 'COD',
+            gcashNumber: '',
+            gcashReceipt: null
+        }));
+        setShowGCashModal(false);
     };
     
     // State for loading and success messages
@@ -252,6 +308,98 @@ export default function Order({ auth, dbMeals = [] }) {
         if (newQuantity >= 1) {
             setMealQuantity(newQuantity);
         }
+    };
+    
+    // Helper function to prepare request data (FormData for GCash, JSON for COD)
+    const prepareRequestData = (orderData) => {
+        // Check if we need to use FormData (for GCash payment with receipt)
+        if (orderData.customerInfo.paymentMethod === 'GCash' && orderData.customerInfo.gcashReceipt) {
+            const formData = new FormData();
+            
+            // Add package info
+            formData.append('package[id]', orderData.package.id);
+            formData.append('package[name]', orderData.package.name);
+            if (orderData.package.price) {
+                formData.append('package[price]', orderData.package.price);
+            }
+            if (orderData.package.set) {
+                formData.append('package[set]', orderData.package.set);
+            }
+            
+            // Add dishes
+            orderData.dishes.forEach((dish, index) => {
+                formData.append(`dishes[${index}]`, dish);
+            });
+            
+            // Add desserts if available
+            if (orderData.desserts) {
+                orderData.desserts.forEach((dessert, index) => {
+                    formData.append(`desserts[${index}]`, dessert);
+                });
+            }
+            
+            // Add main item and set if available (for Fiesta packages)
+            if (orderData.mainItem) {
+                formData.append('mainItem', orderData.mainItem);
+            }
+            if (orderData.set) {
+                formData.append('set', orderData.set);
+            }
+            
+            // Add customer info
+            Object.keys(orderData.customerInfo).forEach(key => {
+                if (key === 'gcashReceipt' && orderData.customerInfo[key]) {
+                    formData.append('customerInfo[gcashReceipt]', orderData.customerInfo[key]);
+                } else if (orderData.customerInfo[key] !== null && orderData.customerInfo[key] !== undefined) {
+                    formData.append(`customerInfo[${key}]`, orderData.customerInfo[key]);
+                }
+            });
+            
+            return {
+                data: formData,
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                    'Accept': 'application/json'
+                }
+            };
+        } else {
+            // Use regular JSON for COD
+            return {
+                data: orderData,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+            };
+        }
+    };
+    
+    // Function to add item to cart
+    const addToCart = (orderData) => {
+        const { data, headers } = prepareRequestData(orderData);
+        
+        axios.post(route('cart.store'), data, { headers })
+        .then(response => {
+            console.log('Item added to cart:', response.data);
+            setNotification({
+                message: 'Item added to cart successfully!',
+                type: 'success',
+                visible: true
+            });
+            // Close the modal
+            setShowFoodPaxModal(false);
+            setShowSingleMealModal(false);
+            setShowFiestaModal(false);
+        })
+        .catch(error => {
+            console.error('Failed to add to cart:', error);
+            const errorMessage = error.response?.data?.message || 'Failed to add item to cart. Please try again.';
+            setNotification({
+                message: errorMessage,
+                type: 'error',
+                visible: true
+            });
+        });
     };
     
     // Handle confirming food pax selection
@@ -289,13 +437,11 @@ export default function Order({ auth, dbMeals = [] }) {
             // Debug the order data before sending
             console.log('Submitting Food Pax order data:', orderData);
             
+            // Prepare request data (FormData or JSON based on payment method)
+            const { data, headers } = prepareRequestData(orderData);
+            
             // Send the order to the server using the web route
-            axios.post(route('orders.store'), orderData, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    }
-                })
+            axios.post(route('orders.store'), data, { headers })
                 .then(response => {
                     console.log('Order created:', response.data);
                     setIsSubmitting(false);
@@ -377,13 +523,11 @@ export default function Order({ auth, dbMeals = [] }) {
             // Debug the order data before sending
             console.log('Submitting Single Meal order data:', orderData);
             
+            // Prepare request data (FormData or JSON based on payment method)
+            const { data, headers } = prepareRequestData(orderData);
+            
             // Send the order to the server using the web route
-            axios.post(route('orders.store'), orderData, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    }
-                })
+            axios.post(route('orders.store'), data, { headers })
                 .then(response => {
                     console.log('Order created:', response.data);
                     setIsSubmitting(false);
@@ -484,13 +628,11 @@ export default function Order({ auth, dbMeals = [] }) {
             // Debug the order data before sending
             console.log('Submitting Fiesta Package order data:', orderData);
             
+            // Prepare request data (FormData or JSON based on payment method)
+            const { data, headers } = prepareRequestData(orderData);
+            
             // Send the order to the server using the web route
-            axios.post(route('orders.store'), orderData, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    }
-                })
+            axios.post(route('orders.store'), data, { headers })
                 .then(response => {
                     console.log('Order created:', response.data);
                     setIsSubmitting(false);
@@ -757,6 +899,22 @@ export default function Order({ auth, dbMeals = [] }) {
                                     />
                                 </div>
                                 
+                                {/* Note field */}
+                                <div>
+                                    <label htmlFor="note" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Note (Optional)
+                                    </label>
+                                    <textarea
+                                        id="note"
+                                        name="note"
+                                        value={customerInfo.note}
+                                        onChange={handleCustomerInfoChange}
+                                        rows="3"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                                        placeholder="Add any special instructions or notes for your order..."
+                                    />
+                                </div>
+                                
                                 {/* Number of pax field */}
                                 <div>
                                     <label htmlFor="numberOfPax" className="block text-sm font-medium text-gray-700 mb-1">
@@ -791,38 +949,115 @@ export default function Order({ auth, dbMeals = [] }) {
                                     />
                                     <p className="text-xs text-gray-500 mt-1">Orders must be placed at least 1 day in advance</p>
                                 </div>
+                                
+                                {/* Delivery Time field */}
+                                <div>
+                                    <label htmlFor="deliveryTime" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Delivery Time <span className="text-red-600">*</span>
+                                    </label>
+                                    <input
+                                        type="time"
+                                        id="deliveryTime"
+                                        name="deliveryTime"
+                                        value={customerInfo.deliveryTime}
+                                        onChange={handleCustomerInfoChange}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                        required
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Specify your preferred delivery time</p>
+                                </div>
+                                
+                                {/* Payment Method field */}
+                                <div>
+                                    <label htmlFor="paymentMethod" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Payment Method <span className="text-red-600">*</span>
+                                    </label>
+                                    <select
+                                        id="paymentMethod"
+                                        name="paymentMethod"
+                                        value={customerInfo.paymentMethod}
+                                        onChange={handleCustomerInfoChange}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                        required
+                                    >
+                                        <option value="COD">Cash on Delivery (COD)</option>
+                                        <option value="GCash">GCash</option>
+                                    </select>
+                                    {customerInfo.paymentMethod === 'GCash' && customerInfo.gcashNumber && (
+                                        <p className="text-xs text-green-600 mt-1">✓ GCash payment info saved</p>
+                                    )}
+                                </div>
                             </div>
                             <p className="text-xs text-gray-500 mt-3">
                                 * Required fields. Your existing information has been pre-filled but can be edited if needed.
                             </p>
                         </div>
                         
-                        <div className="border-t pt-4 flex justify-end">
+                        <div className="border-t pt-4 flex justify-between">
                             <button
                                 onClick={() => setShowFoodPaxModal(false)}
-                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 mr-2 hover:bg-gray-50"
+                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                             >
                                 Cancel
                             </button>
-                            <button
-                                onClick={confirmFoodPaxSelection}
-                                disabled={
-                                    selectedDishes.length !== 2 || 
-                                    !customerInfo.address || 
-                                    customerInfo.numberOfPax < 1 ||
-                                    !customerInfo.deliveryDate
-                                }
-                                className={`px-4 py-2 rounded-md text-white ${
-                                    (selectedDishes.length === 2 && 
-                                     customerInfo.address && 
-                                     customerInfo.numberOfPax >= 1 &&
-                                     customerInfo.deliveryDate)
-                                        ? 'bg-red-600 hover:bg-red-700' 
-                                        : 'bg-gray-400 cursor-not-allowed'
-                                }`}
-                            >
-                                Place Order
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        const selectedDishNames = selectedDishes.map(dishId => {
+                                            const dish = foodPaxDishes.find(d => d.id === dishId);
+                                            return dish ? dish.name : null;
+                                        }).filter(name => name !== null);
+
+                                        const packagePrice = currentPackage.price;
+
+                                        const orderData = {
+                                            package: {
+                                                ...currentPackage,
+                                                price: packagePrice.toString()
+                                            },
+                                            dishes: selectedDishNames,
+                                            customerInfo: customerInfo
+                                        };
+
+                                        addToCart(orderData);
+                                    }}
+                                    disabled={
+                                        selectedDishes.length !== 2 || 
+                                        !customerInfo.address || 
+                                        customerInfo.numberOfPax < 1 ||
+                                        !customerInfo.deliveryDate
+                                    }
+                                    className={`px-4 py-2 rounded-md border ${
+                                        (selectedDishes.length === 2 && 
+                                         customerInfo.address && 
+                                         customerInfo.numberOfPax >= 1 &&
+                                         customerInfo.deliveryDate)
+                                            ? 'border-red-600 text-red-600 hover:bg-red-50' 
+                                            : 'border-gray-300 text-gray-400 cursor-not-allowed'
+                                    }`}
+                                >
+                                    Add to Cart
+                                </button>
+                                <button
+                                    onClick={confirmFoodPaxSelection}
+                                    disabled={
+                                        selectedDishes.length !== 2 || 
+                                        !customerInfo.address || 
+                                        customerInfo.numberOfPax < 1 ||
+                                        !customerInfo.deliveryDate
+                                    }
+                                    className={`px-4 py-2 rounded-md text-white ${
+                                        (selectedDishes.length === 2 && 
+                                         customerInfo.address && 
+                                         customerInfo.numberOfPax >= 1 &&
+                                         customerInfo.deliveryDate)
+                                            ? 'bg-red-600 hover:bg-red-700' 
+                                            : 'bg-gray-400 cursor-not-allowed'
+                                    }`}
+                                >
+                                    Place Order
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1023,38 +1258,128 @@ export default function Order({ auth, dbMeals = [] }) {
                                     />
                                     <p className="text-xs text-gray-500 mt-1">Orders must be placed at least 1 day in advance</p>
                                 </div>
+                                
+                                {/* Delivery Time field */}
+                                <div>
+                                    <label htmlFor="single-deliveryTime" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Delivery Time <span className="text-red-600">*</span>
+                                    </label>
+                                    <input
+                                        type="time"
+                                        id="single-deliveryTime"
+                                        name="deliveryTime"
+                                        value={customerInfo.deliveryTime}
+                                        onChange={handleCustomerInfoChange}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                        required
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Specify your preferred delivery time</p>
+                                </div>
+                                
+                                {/* Payment Method field */}
+                                <div>
+                                    <label htmlFor="single-paymentMethod" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Payment Method <span className="text-red-600">*</span>
+                                    </label>
+                                    <select
+                                        id="single-paymentMethod"
+                                        name="paymentMethod"
+                                        value={customerInfo.paymentMethod}
+                                        onChange={handleCustomerInfoChange}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                        required
+                                    >
+                                        <option value="COD">Cash on Delivery (COD)</option>
+                                        <option value="GCash">GCash</option>
+                                    </select>
+                                    {customerInfo.paymentMethod === 'GCash' && customerInfo.gcashNumber && (
+                                        <p className="text-xs text-green-600 mt-1">✓ GCash payment info saved</p>
+                                    )}
+                                </div>
+                                
+                                {/* Note field */}
+                                <div>
+                                    <label htmlFor="single-note" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Note (Optional)
+                                    </label>
+                                    <textarea
+                                        id="single-note"
+                                        name="note"
+                                        value={customerInfo.note}
+                                        onChange={handleCustomerInfoChange}
+                                        rows="3"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                                        placeholder="Add any special instructions or notes for your order..."
+                                    />
+                                </div>
                             </div>
                         </div>
                         
-                        <div className="border-t pt-4 flex justify-end">
+                        <div className="border-t pt-4 flex justify-between">
                             <button
                                 onClick={() => setShowSingleMealModal(false)}
-                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 mr-2 hover:bg-gray-50"
+                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                             >
                                 Cancel
                             </button>
-                            <button
-                                onClick={confirmSingleMealSelection}
-                                disabled={
-                                    !customerInfo.address || 
-                                    !customerInfo.deliveryDate || 
-                                    (useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false)
-                                }
-                                className={`px-4 py-2 rounded-md text-white ${
-                                    (customerInfo.address && 
-                                     customerInfo.deliveryDate && 
-                                     !(useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false))
-                                        ? 'bg-red-600 hover:bg-red-700' 
-                                        : 'bg-gray-400 cursor-not-allowed'
-                                }`}
-                            >
-                                {isSubmitting 
-                                    ? 'Placing Order...' 
-                                    : (useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false)
-                                        ? 'Meal Not Available'
-                                        : 'Place Order'
-                                }
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        const currentMeal = filipinoDishes[currentDishIndex];
+                                        
+                                        const orderData = {
+                                            package: {
+                                                id: currentMeal.id,
+                                                name: currentMeal.name,
+                                                price: currentMeal.price.toString()
+                                            },
+                                            dishes: [currentMeal.name],
+                                            customerInfo: {
+                                                ...customerInfo,
+                                                numberOfPax: mealQuantity
+                                            }
+                                        };
+
+                                        addToCart(orderData);
+                                    }}
+                                    disabled={
+                                        !customerInfo.address || 
+                                        !customerInfo.deliveryDate || 
+                                        (useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false)
+                                    }
+                                    className={`px-4 py-2 rounded-md border ${
+                                        (customerInfo.address && 
+                                         customerInfo.deliveryDate && 
+                                         !(useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false))
+                                            ? 'border-red-600 text-red-600 hover:bg-red-50' 
+                                            : 'border-gray-300 text-gray-400 cursor-not-allowed'
+                                    }`}
+                                >
+                                    Add to Cart
+                                </button>
+                                <button
+                                    onClick={confirmSingleMealSelection}
+                                    disabled={
+                                        !customerInfo.address || 
+                                        !customerInfo.deliveryDate || 
+                                        (useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false)
+                                    }
+                                    className={`px-4 py-2 rounded-md text-white ${
+                                        (customerInfo.address && 
+                                         customerInfo.deliveryDate && 
+                                         !(useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false))
+                                            ? 'bg-red-600 hover:bg-red-700' 
+                                            : 'bg-gray-400 cursor-not-allowed'
+                                    }`}
+                                >
+                                    {isSubmitting 
+                                        ? 'Placing Order...' 
+                                        : (useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false)
+                                            ? 'Meal Not Available'
+                                            : 'Place Order'
+                                    }
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1340,35 +1665,136 @@ export default function Order({ auth, dbMeals = [] }) {
                                             />
                                             <p className="text-xs text-gray-500 mt-1">Orders must be placed at least 1 day in advance</p>
                                         </div>
+                                        
+                                        {/* Delivery Time field */}
+                                        <div>
+                                            <label htmlFor="fiesta-deliveryTime" className="block text-sm font-medium text-gray-700 mb-1">
+                                                Delivery Time <span className="text-red-600">*</span>
+                                            </label>
+                                            <input
+                                                type="time"
+                                                id="fiesta-deliveryTime"
+                                                name="deliveryTime"
+                                                value={customerInfo.deliveryTime}
+                                                onChange={handleCustomerInfoChange}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                                required
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">Specify your preferred delivery time</p>
+                                        </div>
+                                        
+                                        {/* Payment Method field */}
+                                        <div>
+                                            <label htmlFor="fiesta-paymentMethod" className="block text-sm font-medium text-gray-700 mb-1">
+                                                Payment Method <span className="text-red-600">*</span>
+                                            </label>
+                                            <select
+                                                id="fiesta-paymentMethod"
+                                                name="paymentMethod"
+                                                value={customerInfo.paymentMethod}
+                                                onChange={handleCustomerInfoChange}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                                required
+                                            >
+                                                <option value="COD">Cash on Delivery (COD)</option>
+                                                <option value="GCash">GCash</option>
+                                            </select>
+                                            {customerInfo.paymentMethod === 'GCash' && customerInfo.gcashNumber && (
+                                                <p className="text-xs text-green-600 mt-1">✓ GCash payment info saved</p>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Note field */}
+                                        <div>
+                                            <label htmlFor="fiesta-note" className="block text-sm font-medium text-gray-700 mb-1">
+                                                Note (Optional)
+                                            </label>
+                                            <textarea
+                                                id="fiesta-note"
+                                                name="note"
+                                                value={customerInfo.note}
+                                                onChange={handleCustomerInfoChange}
+                                                rows="3"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                                                placeholder="Add any special instructions or notes for your order..."
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                                 
-                                <div className="border-t pt-4 flex justify-end">
+                                <div className="border-t pt-4 flex justify-between">
                                     <button
                                         onClick={() => setShowFiestaModal(false)}
-                                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 mr-2 hover:bg-gray-50"
+                                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                                     >
                                         Cancel
                                     </button>
-                                    <button
-                                        onClick={confirmFiestaSelection}
-                                        disabled={
-                                            selectedDishes.length !== getMaxDishes() || 
-                                            selectedDesserts.length !== getMaxDesserts() || 
-                                            !customerInfo.address || 
-                                            !customerInfo.deliveryDate
-                                        }
-                                        className={`px-4 py-2 rounded-md text-white ${
-                                            (selectedDishes.length === getMaxDishes() && 
-                                             selectedDesserts.length === getMaxDesserts() &&
-                                             customerInfo.address && 
-                                             customerInfo.deliveryDate)
-                                                ? 'bg-red-600 hover:bg-red-700' 
-                                                : 'bg-gray-400 cursor-not-allowed'
-                                        }`}
-                                    >
-                                        {isSubmitting ? 'Placing Order...' : 'Place Order'}
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => {
+                                                const selectedDishNames = selectedDishes.map(dishId => {
+                                                    const dish = fiestaDishes.find(d => d.id === dishId);
+                                                    return dish ? dish.name : null;
+                                                }).filter(name => name !== null);
+
+                                                const selectedDessertNames = selectedDesserts.map(dessertId => {
+                                                    const dessert = filipinoDesserts.find(d => d.id === dessertId);
+                                                    return dessert ? dessert.name : null;
+                                                }).filter(name => name !== null);
+
+                                                const mainFeaturedItem = getMainFeaturedItem();
+
+                                                const orderData = {
+                                                    package: {
+                                                        id: 3,
+                                                        name: 'Filipino Fiesta Package',
+                                                        set: selectedSet
+                                                    },
+                                                    dishes: selectedDishNames,
+                                                    desserts: selectedDessertNames,
+                                                    mainItem: mainFeaturedItem,
+                                                    customerInfo: customerInfo
+                                                };
+
+                                                addToCart(orderData);
+                                            }}
+                                            disabled={
+                                                selectedDishes.length !== getMaxDishes() || 
+                                                selectedDesserts.length !== getMaxDesserts() || 
+                                                !customerInfo.address || 
+                                                !customerInfo.deliveryDate
+                                            }
+                                            className={`px-4 py-2 rounded-md border ${
+                                                (selectedDishes.length === getMaxDishes() && 
+                                                 selectedDesserts.length === getMaxDesserts() &&
+                                                 customerInfo.address && 
+                                                 customerInfo.deliveryDate)
+                                                    ? 'border-red-600 text-red-600 hover:bg-red-50' 
+                                                    : 'border-gray-300 text-gray-400 cursor-not-allowed'
+                                            }`}
+                                        >
+                                            Add to Cart
+                                        </button>
+                                        <button
+                                            onClick={confirmFiestaSelection}
+                                            disabled={
+                                                selectedDishes.length !== getMaxDishes() || 
+                                                selectedDesserts.length !== getMaxDesserts() || 
+                                                !customerInfo.address || 
+                                                !customerInfo.deliveryDate
+                                            }
+                                            className={`px-4 py-2 rounded-md text-white ${
+                                                (selectedDishes.length === getMaxDishes() && 
+                                                 selectedDesserts.length === getMaxDesserts() &&
+                                                 customerInfo.address && 
+                                                 customerInfo.deliveryDate)
+                                                    ? 'bg-red-600 hover:bg-red-700' 
+                                                    : 'bg-gray-400 cursor-not-allowed'
+                                            }`}
+                                        >
+                                            {isSubmitting ? 'Placing Order...' : 'Place Order'}
+                                        </button>
+                                    </div>
                                 </div>
                             </>
                         )}
@@ -1382,6 +1808,13 @@ export default function Order({ auth, dbMeals = [] }) {
                     onClose={() => setNotification({ ...notification, visible: false })}
                 />
             )}
+            
+            {/* GCash Payment Modal */}
+            <GCashPaymentModal
+                show={showGCashModal}
+                onClose={handleGCashModalClose}
+                onSubmit={handleGCashSubmit}
+            />
         </AuthenticatedLayout>
     );
 }

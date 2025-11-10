@@ -445,6 +445,7 @@ public function storeInventory(Request $request)
                 'customer_phone' => $order->customer_phone,
                 'delivery_address' => $order->delivery_address,
                 'delivery_date' => $order->delivery_date->format('Y-m-d'), // Ensure consistent YYYY-MM-DD format
+                'delivery_time' => $order->delivery_time,
                 'package_id' => $order->package_id,
                 'package_name' => $order->package_name,
                 'package_price' => $order->package_price,
@@ -453,6 +454,9 @@ public function storeInventory(Request $request)
                 'total_amount' => $order->total_amount,
                 'status' => $order->status,
                 'notes' => $order->notes,
+                'payment_method' => $order->payment_method,
+                'gcash_number' => $order->gcash_number,
+                'gcash_receipt' => $order->gcash_receipt,
                 'created_at' => $order->created_at ? $order->created_at->format('Y-m-d H:i:s') : null
             ];
         });

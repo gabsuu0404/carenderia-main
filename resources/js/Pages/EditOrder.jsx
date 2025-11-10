@@ -35,7 +35,9 @@ export default function EditOrder({ auth, order, foodPaxDishes, fiestaDishes, fi
     // Initialize form with order data
     const { data, setData, put, processing, errors } = useForm({
         delivery_date: formatDateForInput(order.delivery_date),
+        delivery_time: order.delivery_time || '',
         delivery_address: order.delivery_address,
+        notes: order.notes || '',
         number_of_pax: order.number_of_pax,
         selected_dishes: order.selected_dishes,
         selected_desserts: order.selected_desserts || [],
@@ -513,6 +515,25 @@ export default function EditOrder({ auth, order, foodPaxDishes, fiestaDishes, fi
                                             )}
                                         </div>
                                         
+                                        {/* Delivery Time field */}
+                                        <div>
+                                            <label htmlFor="delivery_time" className="block text-sm font-medium text-gray-700 mb-1">
+                                                Delivery Time <span className="text-red-600">*</span>
+                                            </label>
+                                            <input
+                                                type="time"
+                                                id="delivery_time"
+                                                name="delivery_time"
+                                                value={data.delivery_time}
+                                                onChange={handleInputChange}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                                required
+                                            />
+                                            {errors.delivery_time && (
+                                                <div className="text-red-500 text-sm mt-1">{errors.delivery_time}</div>
+                                            )}
+                                        </div>
+                                        
                                         {/* Delivery Address field */}
                                         <div>
                                             <label htmlFor="delivery_address" className="block text-sm font-medium text-gray-700 mb-1">
@@ -530,6 +551,25 @@ export default function EditOrder({ auth, order, foodPaxDishes, fiestaDishes, fi
                                             />
                                             {errors.delivery_address && (
                                                 <div className="text-red-500 text-sm mt-1">{errors.delivery_address}</div>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Note field */}
+                                        <div>
+                                            <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
+                                                Note (Optional)
+                                            </label>
+                                            <textarea
+                                                id="notes"
+                                                name="notes"
+                                                value={data.notes}
+                                                onChange={handleInputChange}
+                                                rows="3"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                                                placeholder="Add any special instructions or notes for your order..."
+                                            />
+                                            {errors.notes && (
+                                                <div className="text-red-500 text-sm mt-1">{errors.notes}</div>
                                             )}
                                         </div>
                                         
@@ -576,7 +616,7 @@ export default function EditOrder({ auth, order, foodPaxDishes, fiestaDishes, fi
                                 
                                 <div className="flex justify-end">
                                     <Link 
-                                        href="javascript:history.back()" 
+                                        href={route('my.orders')} 
                                         className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 mr-2 hover:bg-gray-50 flex items-center"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
