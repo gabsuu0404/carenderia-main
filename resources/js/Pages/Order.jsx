@@ -422,7 +422,10 @@ export default function Order({ auth, dbMeals = [] }) {
             });
             
             // Create the order data with proper price
+            // Food Pax pricing: ₱500 per pax, but capped at ₱10,000 max and min ₱1,000
             const packagePrice = 500; // Base price for Food Pax per pax
+            const calculatedTotal = packagePrice * customerInfo.numberOfPax;
+            const actualTotal = Math.min(Math.max(calculatedTotal, 1000), 10000); // Min ₱1,000, Max ₱10,000
             
             // Create the order data
             const orderData = {
@@ -993,7 +996,30 @@ export default function Order({ auth, dbMeals = [] }) {
                             </p>
                         </div>
                         
-                        <div className="border-t pt-4 flex justify-between">
+                        {/* Price Summary */}
+                        <div className="border-t pt-4 mb-4">
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-gray-700 font-medium">Number of Pax:</span>
+                                    <span className="text-gray-900 font-bold">{customerInfo.numberOfPax}</span>
+                                </div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-gray-700 font-medium">Price per Pax:</span>
+                                    <span className="text-gray-900 font-bold">₱500</span>
+                                </div>
+                                <div className="flex justify-between items-center text-lg border-t pt-2">
+                                    <span className="text-gray-900 font-bold">Total Amount:</span>
+                                    <span className="text-red-600 font-bold">
+                                        ₱{Math.min(Math.max(500 * customerInfo.numberOfPax, 1000), 10000).toLocaleString()}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                    * Food Pax pricing: Min ₱1,000 - Max ₱10,000 (₱500 per pax)
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div className="flex justify-between">
                             <button
                                 onClick={() => setShowFoodPaxModal(false)}
                                 className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
