@@ -376,12 +376,63 @@ class EmployeeController extends Controller
  */
 public function inventory()
 {
-    // Fetch all ingredients from the Inventory model
-    $ingredients = \App\Models\Inventory::all();
+    // Fetch all ingredients from the Inventory model with their closest expiry date
+    $ingredients = \App\Models\Inventory::all()->map(function ($ingredient) {
+        // Get the closest expiry date from stock transaction items for this ingredient
+        $closestExpiryItem = \App\Models\StockTransactionItem::where('inventory_id', $ingredient->id)
+            ->whereNotNull('expiry_date')
+            ->where('expiry_date', '>=', now()->toDateString()) // Future or today
+            ->orderBy('expiry_date', 'asc')
+            ->first();
+
+        $ingredient->closest_expiry_date = $closestExpiryItem ? $closestExpiryItem->expiry_date->format('Y-m-d') : null;
+        
+        // Calculate days until expiry
+        if ($closestExpiryItem) {
+            $daysUntilExpiry = now()->diffInDays($closestExpiryItem->expiry_date, false);
+            $ingredient->days_until_expiry = floor($daysUntilExpiry);
+        } else {
+            $ingredient->days_until_expiry = null;
+        }
+
+        return $ingredient;
+    });
+
+    // Fetch stock transactions with user and items
+    $stockTransactions = \App\Models\StockTransaction::with(['user', 'items.inventory'])
+        ->orderBy('transaction_date', 'desc')
+        ->orderBy('created_at', 'desc')
+        ->get()
+        ->map(function ($transaction) {
+            return [
+                'id' => $transaction->id,
+                'type' => $transaction->type,
+                'transaction_date' => $transaction->transaction_date->format('Y-m-d'),
+                'user_name' => $transaction->user ? $transaction->user->name : 'Unknown',
+                'items_count' => $transaction->items->count(),
+                'total_quantity' => $transaction->items->sum('quantity'),
+                'created_at' => $transaction->created_at->format('Y-m-d H:i:s'),
+                'items' => $transaction->items->map(function ($item) {
+                    return [
+                        'id' => $item->id,
+                        'ingredient_name' => $item->inventory->name,
+                        'ingredient_unit' => $item->inventory->unit,
+                        'quantity' => $item->quantity,
+                        'quantity_before' => $item->quantity_before,
+                        'quantity_after' => $item->quantity_after,
+                        'expiry_date' => $item->expiry_date ? $item->expiry_date->format('Y-m-d') : null,
+                        'reason' => $item->reason,
+                    ];
+                }),
+            ];
+        });
 
     // Render the Inventory page and pass the data
     return inertia('Employee/Inventory', [
         'ingredients' => $ingredients,
+        'stockTransactions' => $stockTransactions,
+        'success' => session('success'),
+        'error' => session('error'),
     ]);
 }
 
@@ -393,16 +444,17 @@ public function storeInventory(Request $request)
     // Validate form input fields
     $validated = $request->validate([
         'name' => 'required|string|max:255',
-        'quantity' => 'required|numeric|min:0',
         'unit' => 'required|string',
-        'pax_capacity' => 'required|integer|min:1',
     ]);
+
+    // Set initial quantity to 0
+    $validated['quantity'] = 0;
 
     // Save validated data to the database
     \App\Models\Inventory::create($validated);
 
     // Redirect back with success message
-    return redirect()->back()->with('success', 'Ingredient added successfully!');
+    return redirect()->back()->with('success', 'Ingredient added successfully! Use Stock In to add initial inventory.');
 }
 
     /**
@@ -410,23 +462,162 @@ public function storeInventory(Request $request)
      */
     public function updateInventory(Request $request, $id)
 {
-        // Validate updated data
+        // Validate updated data - quantity is not required for edit
         $validated = $request->validate([
           'name' => 'required|string|max:255',
-          'quantity' => 'required|numeric|min:0',
           'unit' => 'required|string',
-          'pax_capacity' => 'required|integer|min:1',
     ]);
 
      // Find the inventory record or fail if not found
      $inventory = \App\Models\Inventory::findOrFail($id);
 
-     // Update the record with new validated data
+     // Update only name and unit (not quantity)
      $inventory->update($validated);
 
     // Redirect back with success message
     return redirect()->back()->with('success', 'Ingredient updated successfully!');
 }
+
+    /**
+     * Process stock in for multiple ingredients.
+     */
+    public function stockIn(Request $request): RedirectResponse
+    {
+        try {
+            \Log::info('Stock in request received', ['data' => $request->all()]);
+
+            $validated = $request->validate([
+                'date' => 'required|date',
+                'ingredients' => 'required|array',
+                'ingredients.*.id' => 'required|exists:inventories,id',
+                'ingredients.*.quantity' => 'required|numeric|min:0.01',
+                'ingredients.*.expiry_date' => 'nullable|date',
+            ]);
+
+            // Create stock transaction record
+            $transaction = \App\Models\StockTransaction::create([
+                'type' => 'in',
+                'transaction_date' => $validated['date'],
+                'user_id' => auth()->id(),
+            ]);
+
+            $updatedCount = 0;
+            foreach ($validated['ingredients'] as $ingredientData) {
+                $inventory = \App\Models\Inventory::findOrFail($ingredientData['id']);
+                
+                $oldQuantity = $inventory->quantity;
+                // Add the stock in quantity to the current quantity
+                $inventory->quantity = $inventory->quantity + $ingredientData['quantity'];
+                $inventory->save();
+
+                // Create transaction item
+                \App\Models\StockTransactionItem::create([
+                    'stock_transaction_id' => $transaction->id,
+                    'inventory_id' => $inventory->id,
+                    'quantity' => $ingredientData['quantity'],
+                    'quantity_before' => $oldQuantity,
+                    'quantity_after' => $inventory->quantity,
+                    'expiry_date' => $ingredientData['expiry_date'] ?? null,
+                ]);
+                
+                \Log::info('Updated inventory', [
+                    'id' => $inventory->id,
+                    'name' => $inventory->name,
+                    'old_quantity' => $oldQuantity,
+                    'added_quantity' => $ingredientData['quantity'],
+                    'new_quantity' => $inventory->quantity,
+                ]);
+                
+                $updatedCount++;
+            }
+
+            return redirect()->back()->with('success', "Stock in processed successfully! Updated {$updatedCount} ingredient(s).");
+        } catch (\Exception $e) {
+            \Log::error('Stock in failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return redirect()->back()->with('error', 'Failed to process stock in: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Process stock out for multiple ingredients.
+     */
+    public function stockOut(Request $request): RedirectResponse
+    {
+        try {
+            \Log::info('Stock out request received', ['data' => $request->all()]);
+
+            $validated = $request->validate([
+                'date' => 'required|date',
+                'ingredients' => 'required|array',
+                'ingredients.*.id' => 'required|exists:inventories,id',
+                'ingredients.*.quantity' => 'required|numeric|min:0.01',
+                'ingredients.*.reason' => 'nullable|string',
+            ]);
+
+            $updatedCount = 0;
+            $errors = [];
+
+            // Create stock transaction record
+            $transaction = \App\Models\StockTransaction::create([
+                'type' => 'out',
+                'transaction_date' => $validated['date'],
+                'user_id' => auth()->id(),
+            ]);
+
+            foreach ($validated['ingredients'] as $ingredientData) {
+                $inventory = \App\Models\Inventory::findOrFail($ingredientData['id']);
+                
+                // Check if there's enough stock
+                if ($inventory->quantity < $ingredientData['quantity']) {
+                    $errors[] = "{$inventory->name}: Insufficient stock. Available: {$inventory->quantity}, Requested: {$ingredientData['quantity']}";
+                    continue;
+                }
+                
+                $oldQuantity = $inventory->quantity;
+                // Subtract the stock out quantity from the current quantity
+                $inventory->quantity = $inventory->quantity - $ingredientData['quantity'];
+                $inventory->save();
+
+                // Create transaction item
+                \App\Models\StockTransactionItem::create([
+                    'stock_transaction_id' => $transaction->id,
+                    'inventory_id' => $inventory->id,
+                    'quantity' => $ingredientData['quantity'],
+                    'quantity_before' => $oldQuantity,
+                    'quantity_after' => $inventory->quantity,
+                    'reason' => $ingredientData['reason'] ?? null,
+                ]);
+                
+                \Log::info('Updated inventory (stock out)', [
+                    'id' => $inventory->id,
+                    'name' => $inventory->name,
+                    'old_quantity' => $oldQuantity,
+                    'removed_quantity' => $ingredientData['quantity'],
+                    'new_quantity' => $inventory->quantity,
+                    'reason' => $ingredientData['reason'] ?? 'Not specified',
+                ]);
+                
+                $updatedCount++;
+            }
+
+            if (!empty($errors)) {
+                return redirect()->back()->with('error', 'Stock out completed with errors: ' . implode('; ', $errors));
+            }
+
+            return redirect()->back()->with('success', "Stock out processed successfully! Updated {$updatedCount} ingredient(s).");
+        } catch (\Exception $e) {
+            \Log::error('Stock out failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return redirect()->back()->with('error', 'Failed to process stock out: ' . $e->getMessage());
+        }
+    }
 
     /**
      * Display the orders management page with calendar view.

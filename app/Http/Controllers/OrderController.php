@@ -325,6 +325,40 @@ class OrderController extends Controller
             $order->selected_desserts = json_encode($request->input('selected_desserts'));
         }
         
+        // Check order limits if delivery date is being changed
+        $newDeliveryDate = $request->input('delivery_date');
+        if ($order->delivery_date != $newDeliveryDate) {
+            // Check Filipino Fiesta package limit (max 3 per day)
+            if ($order->package_set) {
+                $fiestaOrdersCount = Order::whereDate('delivery_date', $newDeliveryDate)
+                    ->whereNotNull('package_set')
+                    ->where('status', '!=', 'cancelled')
+                    ->where('id', '!=', $order->id) // Exclude current order
+                    ->count();
+                    
+                if ($fiestaOrdersCount >= 3) {
+                    return redirect()->back()->withErrors([
+                        'delivery_date' => 'Sorry, we can only cater up to 3 Filipino Fiesta Package orders per day. This date is already fully booked for fiesta packages.'
+                    ])->withInput();
+                }
+            }
+            
+            // Check total pax limit (max 100 pax per day)
+            $totalPaxForDate = Order::whereDate('delivery_date', $newDeliveryDate)
+                ->where('status', '!=', 'cancelled')
+                ->where('id', '!=', $order->id) // Exclude current order
+                ->sum('number_of_pax');
+                
+            $requestedPax = $request->input('number_of_pax');
+            
+            if (($totalPaxForDate + $requestedPax) > 100) {
+                $remainingPax = 100 - $totalPaxForDate;
+                return redirect()->back()->withErrors([
+                    'delivery_date' => "Sorry, we can only cater up to 100 total pax per day. This date already has {$totalPaxForDate} pax booked. Only {$remainingPax} pax remaining."
+                ])->withInput();
+            }
+        }
+        
         // Update the order
         $order->delivery_date = $request->input('delivery_date');
         $order->delivery_time = $request->input('delivery_time');
@@ -427,6 +461,39 @@ class OrderController extends Controller
             throw $e;
         }
 
+        // Check order limits for the requested delivery date
+        $deliveryDate = $request->input('customerInfo.deliveryDate');
+        
+        // Check Filipino Fiesta package limit (max 3 per day)
+        if ($isFiestaPackage) {
+            $fiestaOrdersCount = Order::whereDate('delivery_date', $deliveryDate)
+                ->whereNotNull('package_set') // Filipino Fiesta packages have package_set
+                ->where('status', '!=', 'cancelled')
+                ->count();
+                
+            if ($fiestaOrdersCount >= 3) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Sorry, we can only cater up to 3 Filipino Fiesta Package orders per day. This date is already fully booked for fiesta packages.'
+                ], 422);
+            }
+        }
+        
+        // Check total pax limit (max 100 pax per day)
+        $totalPaxForDate = Order::whereDate('delivery_date', $deliveryDate)
+            ->where('status', '!=', 'cancelled')
+            ->sum('number_of_pax');
+            
+        $requestedPax = $request->input('customerInfo.numberOfPax', 0);
+        
+        if (($totalPaxForDate + $requestedPax) > 100) {
+            $remainingPax = 100 - $totalPaxForDate;
+            return response()->json([
+                'success' => false,
+                'message' => "Sorry, we can only cater up to 100 total pax per day. This date already has {$totalPaxForDate} pax booked. Only {$remainingPax} pax remaining."
+            ], 422);
+        }
+
         // Calculate price based on package type
         $numericPrice = 0;
         $packageId = $request->input('package.id');
@@ -472,6 +539,16 @@ class OrderController extends Controller
             $numericPrice = (float) preg_replace('/[^0-9.]/', '', $priceString);
             // Calculate total amount based on package price and number of pax
             $totalAmount = $numericPrice * $request->input('customerInfo.numberOfPax');
+            
+            // Cap Food Pax total at ₱10,000 maximum
+            if ($totalAmount > 10000) {
+                $totalAmount = 10000;
+            }
+            
+            // Ensure minimum of ₱1,000
+            if ($totalAmount < 1000) {
+                $totalAmount = 1000;
+            }
         }
 
         // Handle GCash receipt upload

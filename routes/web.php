@@ -94,6 +94,8 @@ Route::middleware(['auth', 'user.status', 'role:employee'])->group(function () {
     Route::get('/employee/inventory', [EmployeeController::class, 'inventory'])->name('employee.inventory');
     Route::post('/employee/inventory', [EmployeeController::class, 'storeInventory'])->name('employee.inventory.store');
     Route::put('/employee/inventory/{item}', [EmployeeController::class, 'updateInventory'])->name('employee.inventory.update');
+    Route::post('/employee/inventory/stock-in', [EmployeeController::class, 'stockIn'])->name('employee.inventory.stock-in');
+    Route::post('/employee/inventory/stock-out', [EmployeeController::class, 'stockOut'])->name('employee.inventory.stock-out');
 
     // Order management
     Route::get('/employee/orders', [EmployeeController::class, 'orders'])->name('employee.orders');
