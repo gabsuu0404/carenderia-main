@@ -46,10 +46,12 @@ Route::middleware(['auth', 'user.status'])->group(function () {
     // Order pages
     Route::get('/order', [App\Http\Controllers\OrderController::class, 'index'])->name('order');
     Route::post('/orders', [App\Http\Controllers\OrderController::class, 'store'])->name('orders.store');
+    Route::post('/orders/check-date', [App\Http\Controllers\OrderController::class, 'checkDateAvailability'])->name('orders.check-date');
     Route::get('/my-orders', [App\Http\Controllers\OrderController::class, 'myOrders'])->name('my.orders');
     Route::get('/my-orders/{id}/edit', [App\Http\Controllers\OrderController::class, 'edit'])->name('orders.edit');
     Route::put('/my-orders/{id}', [App\Http\Controllers\OrderController::class, 'update'])->name('orders.update');
     Route::post('/my-orders/{id}/cancel', [App\Http\Controllers\OrderController::class, 'cancel'])->name('orders.cancel');
+    Route::post('/orders/{id}/gcash-payment', [App\Http\Controllers\OrderController::class, 'submitGCashPayment'])->name('orders.gcash-payment');
     
     // Cart routes
     Route::get('/cart', [App\Http\Controllers\CartController::class, 'index'])->name('cart.index');
@@ -96,10 +98,15 @@ Route::middleware(['auth', 'user.status', 'role:employee'])->group(function () {
     Route::put('/employee/inventory/{item}', [EmployeeController::class, 'updateInventory'])->name('employee.inventory.update');
     Route::post('/employee/inventory/stock-in', [EmployeeController::class, 'stockIn'])->name('employee.inventory.stock-in');
     Route::post('/employee/inventory/stock-out', [EmployeeController::class, 'stockOut'])->name('employee.inventory.stock-out');
+    Route::put('/employee/inventory/transaction/{transaction}', [EmployeeController::class, 'updateTransaction'])->name('employee.inventory.update-transaction');
 
     // Order management
     Route::get('/employee/orders', [EmployeeController::class, 'orders'])->name('employee.orders');
     Route::put('/employee/orders/{id}/status', [App\Http\Controllers\OrderController::class, 'updateStatus'])->name('employee.orders.update-status');
+    
+    // Order limits
+    Route::get('/employee/order-limits', [EmployeeController::class, 'getOrderLimits'])->name('employee.order-limits.get');
+    Route::post('/employee/order-limits', [EmployeeController::class, 'saveOrderLimits'])->name('employee.order-limits.save');
 });
 
 require __DIR__.'/auth.php';

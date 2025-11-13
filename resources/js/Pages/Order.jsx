@@ -16,14 +16,26 @@ export default function Order({ auth, dbMeals = [] }) {
     const [currentPackage, setCurrentPackage] = useState(null);
     const [currentDishIndex, setCurrentDishIndex] = useState(0);
     
+    // Single meal selections - now supporting multiple dishes with quantities
+    const [singleMealSelections, setSingleMealSelections] = useState({});
+    
     // Notification state
     const [notification, setNotification] = useState({ message: '', type: 'success', visible: false });
     
     // GCash payment modal state
     const [showGCashModal, setShowGCashModal] = useState(false);
     
+    // Order confirmation state
+    const [showConfirmOrderModal, setShowConfirmOrderModal] = useState(false);
+    const [pendingOrderData, setPendingOrderData] = useState(null);
+    const [orderType, setOrderType] = useState(''); // 'foodpax', 'singlemeal', or 'fiesta'
+    
     // Track whether we're using database meals or hardcoded meals
     const [useDatabaseMeals, setUseDatabaseMeals] = useState(true);
+    
+    // Track unavailable dates
+    const [unavailableDates, setUnavailableDates] = useState([]);
+    const [dateCheckLoading, setDateCheckLoading] = useState(false);
     
     // Log received meals from database for debugging
     useEffect(() => {
@@ -34,6 +46,7 @@ export default function Order({ auth, dbMeals = [] }) {
             setUseDatabaseMeals(false);
         }
     }, [dbMeals]);
+    
     const [mealQuantity, setMealQuantity] = useState(1);
     const [customerInfo, setCustomerInfo] = useState({
         name: auth.user?.name || '',
@@ -55,6 +68,22 @@ export default function Order({ auth, dbMeals = [] }) {
         tomorrow.setDate(tomorrow.getDate() + 1);
         return tomorrow.toISOString().split('T')[0];
     }
+    
+    // Function to check date availability
+    const checkDateAvailability = async (date, isFiestaPackage = false, numberOfPax = 1) => {
+        try {
+            const response = await axios.post(window.route('orders.check-date'), {
+                date: date,
+                is_fiesta_package: isFiestaPackage,
+                number_of_pax: numberOfPax
+            });
+            
+            return response.data;
+        } catch (error) {
+            console.error('Error checking date availability:', error);
+            return { available: true }; // Default to available on error to not block user
+        }
+    };
 
     const options = [
         'All Occasions',
@@ -191,6 +220,7 @@ export default function Order({ auth, dbMeals = [] }) {
         setCurrentPackage(menuPackage);
         setCurrentDishIndex(0);
         setMealQuantity(1);
+        setSingleMealSelections({}); // Reset single meal selections
         
         if (menuPackage.id === 6) { // ID for Food pax
             setShowFoodPaxModal(true);
@@ -199,6 +229,35 @@ export default function Order({ auth, dbMeals = [] }) {
         } else if (menuPackage.id === 5) { // Single Meal
             setShowSingleMealModal(true);
         }
+    };
+    
+    // Handle single meal dish selection with quantity
+    const handleSingleMealDishToggle = (dishId) => {
+        setSingleMealSelections(prev => {
+            const newSelections = { ...prev };
+            if (newSelections[dishId]) {
+                // If already selected, remove it
+                delete newSelections[dishId];
+            } else {
+                // Add with default quantity of 1
+                newSelections[dishId] = 1;
+            }
+            return newSelections;
+        });
+    };
+    
+    // Handle single meal quantity change for specific dish
+    const handleSingleMealQuantityChange = (dishId, change) => {
+        setSingleMealSelections(prev => {
+            const newSelections = { ...prev };
+            const currentQty = newSelections[dishId] || 1;
+            const newQty = currentQty + change;
+            
+            if (newQty >= 1) {
+                newSelections[dishId] = newQty;
+            }
+            return newSelections;
+        });
     };
     
     // Handle set selection for Filipino Fiesta Package
@@ -221,23 +280,50 @@ export default function Order({ auth, dbMeals = [] }) {
     };
     
     // Handle customer info updates
-    const handleCustomerInfoChange = (e) => {
+    const handleCustomerInfoChange = async (e) => {
         const { name, value } = e.target;
         
-        // If payment method changed to GCash, open the modal
-        if (name === 'paymentMethod' && value === 'GCash') {
-            setShowGCashModal(true);
+        // Note: GCash payment will be processed after employee confirms the order
+        // No need to open payment modal here during order placement
+        
+        // If delivery date changed, check availability
+        if (name === 'deliveryDate') {
+            setDateCheckLoading(true);
+            const isFiestaPackage = showFiestaModal && selectedSet !== null;
+            const pax = customerInfo.numberOfPax || 1;
+            
+            const availability = await checkDateAvailability(value, isFiestaPackage, pax);
+            
+            if (!availability.available) {
+                setNotification({
+                    message: availability.message || 'This date is not available for booking.',
+                    type: 'error',
+                    visible: true
+                });
+                setDateCheckLoading(false);
+                // Don't update the date if it's not available
+                return;
+            }
+            setDateCheckLoading(false);
         }
         
-        // If payment method changed to COD, clear GCash data
-        if (name === 'paymentMethod' && value === 'COD') {
-            setCustomerInfo(prev => ({
-                ...prev,
-                paymentMethod: value,
-                gcashNumber: '',
-                gcashReceipt: null
-            }));
-            return;
+        // If number of pax changed and a date is selected, recheck availability
+        if (name === 'numberOfPax' && customerInfo.deliveryDate) {
+            setDateCheckLoading(true);
+            const isFiestaPackage = showFiestaModal && selectedSet !== null;
+            
+            const availability = await checkDateAvailability(customerInfo.deliveryDate, isFiestaPackage, parseInt(value) || 1);
+            
+            if (!availability.available) {
+                setNotification({
+                    message: availability.message || 'The selected date cannot accommodate this many pax.',
+                    type: 'error',
+                    visible: true
+                });
+                setDateCheckLoading(false);
+                // Still update the pax number but show warning
+            }
+            setDateCheckLoading(false);
         }
         
         setCustomerInfo(prev => ({
@@ -378,7 +464,7 @@ export default function Order({ auth, dbMeals = [] }) {
     const addToCart = (orderData) => {
         const { data, headers } = prepareRequestData(orderData);
         
-        axios.post(route('cart.store'), data, { headers })
+        axios.post(window.route('cart.store'), data, { headers })
         .then(response => {
             console.log('Item added to cart:', response.data);
             setNotification({
@@ -405,21 +491,10 @@ export default function Order({ auth, dbMeals = [] }) {
     // Handle confirming food pax selection
     const confirmFoodPaxSelection = () => {
         if (selectedDishes.length === 2 && customerInfo.deliveryDate) {
-            setIsSubmitting(true);
-            setSubmitError(null);
-            
             // Get the selected dish names from the foodPaxDishes list
             const selectedDishNames = selectedDishes.map(id => 
                 foodPaxDishes.find(dish => dish.id === id).name
             );
-            
-            // Format the delivery date for display
-            const formattedDate = new Date(customerInfo.deliveryDate).toLocaleDateString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            });
             
             // Create the order data with proper price
             // Food Pax pricing: ₱500 per pax, but capped at ₱10,000 max and min ₱1,000
@@ -437,63 +512,39 @@ export default function Order({ auth, dbMeals = [] }) {
                 customerInfo: customerInfo
             };
             
-            // Debug the order data before sending
-            console.log('Submitting Food Pax order data:', orderData);
-            
-            // Prepare request data (FormData or JSON based on payment method)
-            const { data, headers } = prepareRequestData(orderData);
-            
-            // Send the order to the server using the web route
-            axios.post(route('orders.store'), data, { headers })
-                .then(response => {
-                    console.log('Order created:', response.data);
-                    setIsSubmitting(false);
-                    setSubmitSuccess(true);
-                    setShowFoodPaxModal(false);
-                    setNotification({
-                        message: `Order placed for ${customerInfo.numberOfPax} pax with: ${selectedDishNames.join(' and ')}. Delivery scheduled for ${formattedDate}.`,
-                        type: 'success',
-                        visible: true
-                    });
-                })
-                .catch(error => {
-                    console.error('Order creation failed:', error);
-                    
-                    // Add more detailed error logging
-                    if (error.response) {
-                        console.error('Error response data:', error.response.data);
-                        console.error('Error response status:', error.response.status);
-                        console.error('Error response headers:', error.response.headers);
-                    } else if (error.request) {
-                        console.error('Error request:', error.request);
-                    } else {
-                        console.error('Error message:', error.message);
-                    }
-                    
-                    const errorMessage = error.response?.data?.message || 'Failed to place order. Please try again.';
-                    setIsSubmitting(false);
-                    setSubmitError(errorMessage);
-                    setNotification({
-                        message: errorMessage,
-                        type: 'error',
-                        visible: true
-                    });
-                });
+            // Set pending order data and show confirmation modal
+            setPendingOrderData(orderData);
+            setOrderType('foodpax');
+            setShowFoodPaxModal(false);
+            setIsSubmitting(false); // Reset submitting state
+            setShowConfirmOrderModal(true);
         }
     };
     
     // Handle confirming single meal selection
     const confirmSingleMealSelection = () => {
-        // Check if the current dish is available (when using database meals)
-        const currentDish = filipinoDishes[currentDishIndex];
-        const isMealAvailable = !useDatabaseMeals || currentDish.is_available !== false;
+        // Check if at least one dish is selected
+        if (Object.keys(singleMealSelections).length === 0) {
+            setNotification({
+                message: 'Please select at least one dish.',
+                type: 'error',
+                visible: true
+            });
+            return;
+        }
         
-        if (customerInfo.deliveryDate && customerInfo.address && isMealAvailable) {
-            setIsSubmitting(true);
-            setSubmitError(null);
-            
-            // Get the current dish
-            const selectedDish = filipinoDishes[currentDishIndex];
+        if (customerInfo.deliveryDate && customerInfo.address) {
+            // Get all selected dishes with their quantities
+            const selectedDishesData = Object.entries(singleMealSelections).map(([dishId, quantity]) => {
+                const dish = filipinoDishes.find(d => d.id === parseInt(dishId));
+                const price = useDatabaseMeals && dish.price ? parseFloat(dish.price) : 120;
+                return {
+                    name: dish.name,
+                    quantity: quantity,
+                    price: price,
+                    subtotal: price * quantity
+                };
+            });
             
             // Format the delivery date for display
             const formattedDate = new Date(customerInfo.deliveryDate).toLocaleDateString('en-US', {
@@ -503,68 +554,118 @@ export default function Order({ auth, dbMeals = [] }) {
                 day: 'numeric'
             });
             
-            // Calculate total price (base price * quantity)
-            const currentDish = filipinoDishes[currentDishIndex];
-            const basePrice = useDatabaseMeals ? parseFloat(currentDish.price || 120) : 120; // Get price from database or use default
-            const totalPrice = basePrice * mealQuantity;
+            // Calculate total price
+            const totalPrice = selectedDishesData.reduce((sum, item) => sum + item.subtotal, 0);
+            const totalQuantity = selectedDishesData.reduce((sum, item) => sum + item.quantity, 0);
             
             // Create the order data
             const orderData = {
                 package: {
                     ...currentPackage,
-                    price: totalPrice.toString(), // Convert to string to match backend validation
+                    price: totalPrice.toString(),
                     formattedPrice: `₱${totalPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
                 },
-                dishes: [selectedDish.name],
-                quantity: mealQuantity,
+                dishes: selectedDishesData.map(d => d.name),
+                dishDetails: selectedDishesData,
+                quantity: totalQuantity,
                 customerInfo: {
                     ...customerInfo,
-                    numberOfPax: 1 // Single meal is for one person by default
+                    numberOfPax: 1
                 }
             };
             
-            // Debug the order data before sending
-            console.log('Submitting Single Meal order data:', orderData);
-            
-            // Prepare request data (FormData or JSON based on payment method)
-            const { data, headers } = prepareRequestData(orderData);
-            
-            // Send the order to the server using the web route
-            axios.post(route('orders.store'), data, { headers })
-                .then(response => {
-                    console.log('Order created:', response.data);
-                    setIsSubmitting(false);
-                    setSubmitSuccess(true);
-                    setShowSingleMealModal(false);
-                    setNotification({
-                        message: `Single meal order placed: ${mealQuantity}x ${selectedDish.name}. Total: ₱${totalPrice}. Delivery scheduled for ${formattedDate}.`,
-                        type: 'success',
-                        visible: true
-                    });
-                })
-                .catch(error => {
-                    console.error('Order creation failed:', error);
-                    
-                    // Add more detailed error logging
-                    if (error.response) {
-                        console.error('Error response data:', error.response.data);
-                        console.error('Error response status:', error.response.status);
-                        console.error('Error response headers:', error.response.headers);
-                        
-                        // Show detailed error to the user
-                        alert(`Order failed: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
-                    } else if (error.request) {
-                        console.error('Error request:', error.request);
-                        alert("Failed to place order. No response received from server.");
-                    } else {
-                        console.error('Error message:', error.message);
-                        alert(`Error: ${error.message}`);
-                    }
-                    
-                    setIsSubmitting(false);
-                    setSubmitError(error.response?.data?.message || 'Failed to place order. Please try again.');
-                });
+            // Set pending order data and show confirmation modal
+            setPendingOrderData(orderData);
+            setOrderType('singlemeal');
+            setShowSingleMealModal(false);
+            setIsSubmitting(false); // Reset submitting state
+            setShowConfirmOrderModal(true);
         }
+    };
+    
+    // Handle final order submission from confirmation modal
+    const handleFinalOrderSubmission = () => {
+        if (!pendingOrderData) return;
+        
+        setIsSubmitting(true);
+        setSubmitError(null);
+        
+        // Update pending order data with latest customer info
+        const finalOrderData = {
+            ...pendingOrderData,
+            customerInfo: customerInfo
+        };
+        
+        // Prepare request data (FormData or JSON based on payment method)
+        const { data, headers } = prepareRequestData(finalOrderData);
+        
+        // Send the order to the server using the web route
+        axios.post(window.route('orders.store'), data, { headers })
+            .then(response => {
+                console.log('Order created:', response.data);
+                setIsSubmitting(false);
+                setSubmitSuccess(true);
+                setShowConfirmOrderModal(false);
+                setPendingOrderData(null);
+                
+                // Format success message based on order type
+                let successMessage = '';
+                if (orderType === 'foodpax') {
+                    const formattedDate = new Date(pendingOrderData.customerInfo.deliveryDate).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    });
+                    successMessage = `Order placed for ${pendingOrderData.customerInfo.numberOfPax} pax with: ${pendingOrderData.dishes.join(' and ')}. Delivery scheduled for ${formattedDate}.`;
+                } else if (orderType === 'singlemeal') {
+                    const formattedDate = new Date(pendingOrderData.customerInfo.deliveryDate).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    });
+                    const dishList = pendingOrderData.dishDetails.map(d => `${d.name} (x${d.quantity})`).join(', ');
+                    successMessage = `Order placed: ${dishList}. Delivery scheduled for ${formattedDate}.`;
+                } else if (orderType === 'fiesta') {
+                    const formattedDate = new Date(pendingOrderData.customerInfo.deliveryDate).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    });
+                    successMessage = `Filipino Fiesta Package Set ${pendingOrderData.set} ordered for ${pendingOrderData.customerInfo.numberOfPax} pax. Main item: ${pendingOrderData.mainItem}. Delivery scheduled for ${formattedDate}.`;
+                }
+                
+                setNotification({
+                    message: successMessage,
+                    type: 'success',
+                    visible: true
+                });
+            })
+            .catch(error => {
+                console.error('Order creation failed:', error);
+                
+                // Add more detailed error logging
+                if (error.response) {
+                    console.error('Error response data:', error.response.data);
+                    console.error('Error response status:', error.response.status);
+                    console.error('Error response headers:', error.response.headers);
+                } else if (error.request) {
+                    console.error('Error request:', error.request);
+                } else {
+                    console.error('Error message:', error.message);
+                }
+                
+                const errorMessage = error.response?.data?.message || 'Failed to place order. Please try again.';
+                setIsSubmitting(false);
+                setSubmitError(errorMessage);
+                setNotification({
+                    message: errorMessage,
+                    type: 'error',
+                    visible: true
+                });
+            });
     };
     
     // Handle confirming fiesta package selection
@@ -628,47 +729,12 @@ export default function Order({ auth, dbMeals = [] }) {
                 customerInfo: customerInfo
             };
             
-            // Debug the order data before sending
-            console.log('Submitting Fiesta Package order data:', orderData);
-            
-            // Prepare request data (FormData or JSON based on payment method)
-            const { data, headers } = prepareRequestData(orderData);
-            
-            // Send the order to the server using the web route
-            axios.post(route('orders.store'), data, { headers })
-                .then(response => {
-                    console.log('Order created:', response.data);
-                    setIsSubmitting(false);
-                    setSubmitSuccess(true);
-                    setShowFiestaModal(false);
-                    setNotification({
-                        message: `Filipino Fiesta Package Set ${selectedSet} ordered for ${customerInfo.numberOfPax} pax. Main item: ${mainItem}. Selected dishes: ${selectedDishNames.join(', ')}. Selected desserts: ${selectedDessertNames.join(', ')}. Delivery scheduled for ${formattedDate}.`,
-                        type: 'success',
-                        visible: true
-                    });
-                })
-                .catch(error => {
-                    console.error('Order creation failed:', error);
-                    
-                    // Add more detailed error logging
-                    if (error.response) {
-                        console.error('Error response data:', error.response.data);
-                        console.error('Error response status:', error.response.status);
-                        console.error('Error response headers:', error.response.headers);
-                        
-                        // Show detailed error to the user
-                        alert(`Order failed: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
-                    } else if (error.request) {
-                        console.error('Error request:', error.request);
-                        alert("Failed to place order. No response received from server.");
-                    } else {
-                        console.error('Error message:', error.message);
-                        alert(`Error: ${error.message}`);
-                    }
-                    
-                    setIsSubmitting(false);
-                    setSubmitError(error.response?.data?.message || 'Failed to place order. Please try again.');
-                });
+            // Set pending order data and show confirmation modal
+            setPendingOrderData(orderData);
+            setOrderType('fiesta');
+            setShowFiestaModal(false);
+            setIsSubmitting(false); // Reset submitting state
+            setShowConfirmOrderModal(true);
         }
     };
     
@@ -940,16 +1006,27 @@ export default function Order({ auth, dbMeals = [] }) {
                                     <label htmlFor="deliveryDate" className="block text-sm font-medium text-gray-700 mb-1">
                                         Delivery Date <span className="text-red-600">*</span>
                                     </label>
-                                    <input
-                                        type="date"
-                                        id="deliveryDate"
-                                        name="deliveryDate"
-                                        value={customerInfo.deliveryDate}
-                                        onChange={handleCustomerInfoChange}
-                                        min={getTomorrowDate()} // Can't select dates before tomorrow
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                                        required
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            type="date"
+                                            id="deliveryDate"
+                                            name="deliveryDate"
+                                            value={customerInfo.deliveryDate}
+                                            onChange={handleCustomerInfoChange}
+                                            min={getTomorrowDate()} // Can't select dates before tomorrow
+                                            disabled={dateCheckLoading}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100"
+                                            required
+                                        />
+                                        {dateCheckLoading && (
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                                <svg className="animate-spin h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                            </div>
+                                        )}
+                                    </div>
                                     <p className="text-xs text-gray-500 mt-1">Orders must be placed at least 1 day in advance</p>
                                 </div>
                                 
@@ -986,8 +1063,8 @@ export default function Order({ auth, dbMeals = [] }) {
                                         <option value="COD">Cash on Delivery (COD)</option>
                                         <option value="GCash">GCash</option>
                                     </select>
-                                    {customerInfo.paymentMethod === 'GCash' && customerInfo.gcashNumber && (
-                                        <p className="text-xs text-green-600 mt-1">✓ GCash payment info saved</p>
+                                    {customerInfo.paymentMethod === 'GCash' && (
+                                        <p className="text-xs text-blue-600 mt-1">ℹ️ GCash QR code will be provided after order confirmation</p>
                                     )}
                                 </div>
                             </div>
@@ -1034,12 +1111,13 @@ export default function Order({ auth, dbMeals = [] }) {
                                             return dish ? dish.name : null;
                                         }).filter(name => name !== null);
 
-                                        const packagePrice = currentPackage.price;
+                                        // For Food Pax, the base price per pax is ₱500
+                                        const packagePrice = '500';
 
                                         const orderData = {
                                             package: {
                                                 ...currentPackage,
-                                                price: packagePrice.toString()
+                                                price: packagePrice
                                             },
                                             dishes: selectedDishNames,
                                             customerInfo: customerInfo
@@ -1089,12 +1167,12 @@ export default function Order({ auth, dbMeals = [] }) {
                 </div>
             )}
 
-            {/* Single Meal Modal with Image Carousel */}
+            {/* Single Meal Modal */}
             {showSingleMealModal && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-2xl font-bold text-gray-800">Single Meal</h2>
+                            <h2 className="text-2xl font-bold text-gray-800">Select Dishes for Single Meal</h2>
                             <button 
                                 onClick={() => setShowSingleMealModal(false)}
                                 className="text-gray-500 hover:text-gray-700"
@@ -1105,99 +1183,87 @@ export default function Order({ auth, dbMeals = [] }) {
                             </button>
                         </div>
                         
-                        <div className="mb-6">
-                            <p className="text-gray-600">Select a Filipino dish to accompany your steamed rice:</p>
+                        <div className="mb-4">
+                            <p className="text-gray-600">Your meal includes steamed rice. Please select one or more dishes to accompany your rice:</p>
+                            <p className="text-sm text-gray-500 mt-1">Selected: {Object.keys(singleMealSelections).length} dish(es)</p>
                         </div>
                         
-                        {/* Dish Carousel */}
-                        <div className="relative mb-8">
-                            <div className="flex justify-center">
-                                <div className="relative w-full max-w-md">
-                                    <div className="bg-gray-100 rounded-lg overflow-hidden h-64 flex items-center justify-center">
-                                        <img 
-                                            src={filipinoDishes[currentDishIndex].image} 
-                                            alt={filipinoDishes[currentDishIndex].name}
-                                            className="w-full h-full object-cover"
-                                            onError={(e) => {
-                                                e.target.onerror = null;
-                                                e.target.src = '/images/logo.jpg'; // Fallback image if the specified one fails to load
-                                            }}
-                                        />
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                            {filipinoDishes.map((dish) => {
+                                const isSelected = singleMealSelections[dish.id] !== undefined;
+                                const quantity = singleMealSelections[dish.id] || 0;
+                                const isAvailable = !useDatabaseMeals || dish.is_available !== false;
+                                
+                                return (
+                                    <div 
+                                        key={dish.id}
+                                        className={`border rounded-lg p-3 transition-colors ${
+                                            isSelected 
+                                                ? 'border-red-500 bg-red-50' 
+                                                : 'border-gray-200 hover:border-gray-300'
+                                        } ${
+                                            !isAvailable 
+                                                ? 'opacity-50 cursor-not-allowed' 
+                                                : ''
+                                        }`}
+                                    >
+                                        <div 
+                                            className="flex items-center cursor-pointer"
+                                            onClick={() => isAvailable && handleSingleMealDishToggle(dish.id)}
+                                        >
+                                            <input 
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => {}}
+                                                className="h-4 w-4 text-red-600 focus:ring-red-500"
+                                                disabled={!isAvailable}
+                                            />
+                                            <label className="ml-2 block font-medium text-gray-700 cursor-pointer">
+                                                {dish.name}
+                                                {!isAvailable && (
+                                                    <span className="ml-1 text-xs text-red-600">(Unavailable)</span>
+                                                )}
+                                            </label>
+                                        </div>
+                                        <p className="mt-1 text-sm text-gray-500">
+                                            {dish.description}
+                                        </p>
+                                        <div className="mt-2 flex justify-between items-center">
+                                            <p className="text-sm font-semibold text-red-600">
+                                                ₱{useDatabaseMeals && dish.price ? parseFloat(dish.price).toFixed(2) : "120.00"}
+                                            </p>
+                                            {isSelected && (
+                                                <div className="flex items-center gap-2">
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSingleMealQuantityChange(dish.id, -1);
+                                                        }}
+                                                        className="bg-gray-200 hover:bg-gray-300 rounded-full w-6 h-6 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        disabled={quantity <= 1}
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                                                        </svg>
+                                                    </button>
+                                                    <span className="text-sm font-semibold w-6 text-center">{quantity}</span>
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSingleMealQuantityChange(dish.id, 1);
+                                                        }}
+                                                        className="bg-gray-200 hover:bg-gray-300 rounded-full w-6 h-6 flex items-center justify-center"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v12M6 12h12" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                    
-                                    {/* Navigation buttons */}
-                                    <button
-                                        onClick={prevDish}
-                                        className="absolute top-1/2 left-2 -translate-y-1/2 bg-white bg-opacity-80 rounded-full p-2 shadow hover:bg-opacity-100 transition-all"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                                        </svg>
-                                    </button>
-                                    <button
-                                        onClick={nextDish}
-                                        className="absolute top-1/2 right-2 -translate-y-1/2 bg-white bg-opacity-80 rounded-full p-2 shadow hover:bg-opacity-100 transition-all"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            {/* Dish Info */}
-                            <div className="mt-4 text-center">
-                                <h3 className="text-xl font-bold">
-                                    {filipinoDishes[currentDishIndex].name}
-                                    {useDatabaseMeals && (
-                                        <span className={`ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                                            filipinoDishes[currentDishIndex].is_available !== false 
-                                                ? 'bg-green-100 text-green-800' 
-                                                : 'bg-red-100 text-red-800'
-                                        }`}>
-                                            {filipinoDishes[currentDishIndex].is_available !== false ? 'Available' : 'Not Available'}
-                                        </span>
-                                    )}
-                                </h3>
-                                <p className="text-gray-600 mt-1">{filipinoDishes[currentDishIndex].description}</p>
-                            </div>
-                        </div>
-                        
-                        {/* Quantity Selector */}
-                        <div className="flex justify-center items-center gap-4 mb-6">
-                            <button 
-                                onClick={() => handleQuantityChange(-1)}
-                                className="bg-gray-200 hover:bg-gray-300 rounded-full w-8 h-8 flex items-center justify-center"
-                                disabled={mealQuantity <= 1}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-                                </svg>
-                            </button>
-                            <div className="text-xl font-semibold">{mealQuantity}</div>
-                            <button 
-                                onClick={() => handleQuantityChange(1)}
-                                className="bg-gray-200 hover:bg-gray-300 rounded-full w-8 h-8 flex items-center justify-center"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v12M6 12h12" />
-                                </svg>
-                            </button>
-                        </div>
-                        
-                        {/* Price Calculation */}
-                        <div className="text-center mb-8">
-                            <div className="text-sm text-gray-500">
-                                Unit Price: ₱{useDatabaseMeals ? parseFloat(filipinoDishes[currentDishIndex]?.price || 120).toFixed(2) : "120.00"}
-                            </div>
-                            <div className="text-xl font-bold text-red-600">
-                                Total: ₱{(useDatabaseMeals 
-                                    ? parseFloat(filipinoDishes[currentDishIndex]?.price || 120) * mealQuantity 
-                                    : 120 * mealQuantity
-                                ).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                            </div>
-                            
-                            {/* Debug info removed */}
+                                );
+                            })}
                         </div>
                         
                         {/* Customer Information Form */}
@@ -1267,21 +1333,48 @@ export default function Order({ auth, dbMeals = [] }) {
                                     />
                                 </div>
                                 
+                                {/* Note field */}
+                                <div>
+                                    <label htmlFor="single-note" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Note (Optional)
+                                    </label>
+                                    <textarea
+                                        id="single-note"
+                                        name="note"
+                                        value={customerInfo.note}
+                                        onChange={handleCustomerInfoChange}
+                                        rows="3"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                                        placeholder="Add any special instructions or notes for your order..."
+                                    />
+                                </div>
+                                
                                 {/* Delivery Date field */}
                                 <div>
                                     <label htmlFor="single-deliveryDate" className="block text-sm font-medium text-gray-700 mb-1">
                                         Delivery Date <span className="text-red-600">*</span>
                                     </label>
-                                    <input
-                                        type="date"
-                                        id="single-deliveryDate"
-                                        name="deliveryDate"
-                                        value={customerInfo.deliveryDate}
-                                        onChange={handleCustomerInfoChange}
-                                        min={getTomorrowDate()} // Can't select dates before tomorrow
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                                        required
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            type="date"
+                                            id="single-deliveryDate"
+                                            name="deliveryDate"
+                                            value={customerInfo.deliveryDate}
+                                            onChange={handleCustomerInfoChange}
+                                            min={getTomorrowDate()} // Can't select dates before tomorrow
+                                            disabled={dateCheckLoading}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100"
+                                            required
+                                        />
+                                        {dateCheckLoading && (
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                                <svg className="animate-spin h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                            </div>
+                                        )}
+                                    </div>
                                     <p className="text-xs text-gray-500 mt-1">Orders must be placed at least 1 day in advance</p>
                                 </div>
                                 
@@ -1318,30 +1411,55 @@ export default function Order({ auth, dbMeals = [] }) {
                                         <option value="COD">Cash on Delivery (COD)</option>
                                         <option value="GCash">GCash</option>
                                     </select>
-                                    {customerInfo.paymentMethod === 'GCash' && customerInfo.gcashNumber && (
-                                        <p className="text-xs text-green-600 mt-1">✓ GCash payment info saved</p>
+                                    {customerInfo.paymentMethod === 'GCash' && (
+                                        <p className="text-xs text-blue-600 mt-1">ℹ️ GCash QR code will be provided after order confirmation</p>
                                     )}
                                 </div>
-                                
-                                {/* Note field */}
-                                <div>
-                                    <label htmlFor="single-note" className="block text-sm font-medium text-gray-700 mb-1">
-                                        Note (Optional)
-                                    </label>
-                                    <textarea
-                                        id="single-note"
-                                        name="note"
-                                        value={customerInfo.note}
-                                        onChange={handleCustomerInfoChange}
-                                        rows="3"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
-                                        placeholder="Add any special instructions or notes for your order..."
-                                    />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-3">
+                                * Required fields. Your existing information has been pre-filled but can be edited if needed.
+                            </p>
+                        </div>
+                        
+                        {/* Price Summary */}
+                        <div className="border-t pt-4 mb-4">
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                                <h4 className="text-md font-medium text-gray-900 mb-3">Order Summary</h4>
+                                {Object.entries(singleMealSelections).map(([dishId, quantity]) => {
+                                    const dish = filipinoDishes.find(d => d.id === parseInt(dishId));
+                                    if (!dish) return null;
+                                    const price = useDatabaseMeals && dish.price ? parseFloat(dish.price) : 120;
+                                    const subtotal = price * quantity;
+                                    
+                                    return (
+                                        <div key={dishId} className="flex justify-between items-center mb-2 text-sm">
+                                            <span className="text-gray-700">
+                                                {dish.name} x {quantity}
+                                            </span>
+                                            <span className="text-gray-900 font-medium">
+                                                ₱{subtotal.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                                {Object.keys(singleMealSelections).length === 0 && (
+                                    <p className="text-sm text-gray-500 mb-2">No dishes selected</p>
+                                )}
+                                <div className="flex justify-between items-center text-lg border-t pt-2 mt-2">
+                                    <span className="text-gray-900 font-bold">Total Amount:</span>
+                                    <span className="text-red-600 font-bold">
+                                        ₱{Object.entries(singleMealSelections).reduce((total, [dishId, quantity]) => {
+                                            const dish = filipinoDishes.find(d => d.id === parseInt(dishId));
+                                            if (!dish) return total;
+                                            const price = useDatabaseMeals && dish.price ? parseFloat(dish.price) : 120;
+                                            return total + (price * quantity);
+                                        }, 0).toFixed(2)}
+                                    </span>
                                 </div>
                             </div>
                         </div>
                         
-                        <div className="border-t pt-4 flex justify-between">
+                        <div className="flex justify-between">
                             <button
                                 onClick={() => setShowSingleMealModal(false)}
                                 className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
@@ -1351,32 +1469,47 @@ export default function Order({ auth, dbMeals = [] }) {
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => {
-                                        const currentMeal = filipinoDishes[currentDishIndex];
+                                        // Get all selected dishes with their quantities
+                                        const selectedDishesData = Object.entries(singleMealSelections).map(([dishId, quantity]) => {
+                                            const dish = filipinoDishes.find(d => d.id === parseInt(dishId));
+                                            const price = useDatabaseMeals && dish.price ? parseFloat(dish.price) : 120;
+                                            return {
+                                                name: dish.name,
+                                                quantity: quantity,
+                                                price: price,
+                                                subtotal: price * quantity
+                                            };
+                                        });
+                                        
+                                        // Calculate total price
+                                        const totalPrice = selectedDishesData.reduce((sum, item) => sum + item.subtotal, 0);
+                                        const totalQuantity = selectedDishesData.reduce((sum, item) => sum + item.quantity, 0);
                                         
                                         const orderData = {
                                             package: {
-                                                id: currentMeal.id,
-                                                name: currentMeal.name,
-                                                price: currentMeal.price.toString()
+                                                ...currentPackage,
+                                                price: totalPrice.toString()
                                             },
-                                            dishes: [currentMeal.name],
+                                            dishes: selectedDishesData.map(d => d.name),
+                                            dishDetails: selectedDishesData,
+                                            quantity: totalQuantity,
                                             customerInfo: {
                                                 ...customerInfo,
-                                                numberOfPax: mealQuantity
+                                                numberOfPax: 1
                                             }
                                         };
 
                                         addToCart(orderData);
                                     }}
                                     disabled={
+                                        Object.keys(singleMealSelections).length === 0 ||
                                         !customerInfo.address || 
-                                        !customerInfo.deliveryDate || 
-                                        (useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false)
+                                        !customerInfo.deliveryDate
                                     }
                                     className={`px-4 py-2 rounded-md border ${
-                                        (customerInfo.address && 
-                                         customerInfo.deliveryDate && 
-                                         !(useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false))
+                                        (Object.keys(singleMealSelections).length > 0 &&
+                                         customerInfo.address && 
+                                         customerInfo.deliveryDate)
                                             ? 'border-red-600 text-red-600 hover:bg-red-50' 
                                             : 'border-gray-300 text-gray-400 cursor-not-allowed'
                                     }`}
@@ -1386,23 +1519,21 @@ export default function Order({ auth, dbMeals = [] }) {
                                 <button
                                     onClick={confirmSingleMealSelection}
                                     disabled={
+                                        Object.keys(singleMealSelections).length === 0 ||
                                         !customerInfo.address || 
-                                        !customerInfo.deliveryDate || 
-                                        (useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false)
+                                        !customerInfo.deliveryDate
                                     }
                                     className={`px-4 py-2 rounded-md text-white ${
-                                        (customerInfo.address && 
-                                         customerInfo.deliveryDate && 
-                                         !(useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false))
+                                        (Object.keys(singleMealSelections).length > 0 &&
+                                         customerInfo.address && 
+                                         customerInfo.deliveryDate)
                                             ? 'bg-red-600 hover:bg-red-700' 
                                             : 'bg-gray-400 cursor-not-allowed'
                                     }`}
                                 >
                                     {isSubmitting 
                                         ? 'Placing Order...' 
-                                        : (useDatabaseMeals && filipinoDishes[currentDishIndex].is_available === false)
-                                            ? 'Meal Not Available'
-                                            : 'Place Order'
+                                        : 'Place Order'
                                     }
                                 </button>
                             </div>
@@ -1679,16 +1810,27 @@ export default function Order({ auth, dbMeals = [] }) {
                                             <label htmlFor="fiesta-deliveryDate" className="block text-sm font-medium text-gray-700 mb-1">
                                                 Delivery Date <span className="text-red-600">*</span>
                                             </label>
-                                            <input
-                                                type="date"
-                                                id="fiesta-deliveryDate"
-                                                name="deliveryDate"
-                                                value={customerInfo.deliveryDate}
-                                                onChange={handleCustomerInfoChange}
-                                                min={getTomorrowDate()} // Can't select dates before tomorrow
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                                                required
-                                            />
+                                            <div className="relative">
+                                                <input
+                                                    type="date"
+                                                    id="fiesta-deliveryDate"
+                                                    name="deliveryDate"
+                                                    value={customerInfo.deliveryDate}
+                                                    onChange={handleCustomerInfoChange}
+                                                    min={getTomorrowDate()} // Can't select dates before tomorrow
+                                                    disabled={dateCheckLoading}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100"
+                                                    required
+                                                />
+                                                {dateCheckLoading && (
+                                                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                                        <svg className="animate-spin h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                    </div>
+                                                )}
+                                            </div>
                                             <p className="text-xs text-gray-500 mt-1">Orders must be placed at least 1 day in advance</p>
                                         </div>
                                         
@@ -1725,8 +1867,8 @@ export default function Order({ auth, dbMeals = [] }) {
                                                 <option value="COD">Cash on Delivery (COD)</option>
                                                 <option value="GCash">GCash</option>
                                             </select>
-                                            {customerInfo.paymentMethod === 'GCash' && customerInfo.gcashNumber && (
-                                                <p className="text-xs text-green-600 mt-1">✓ GCash payment info saved</p>
+                                            {customerInfo.paymentMethod === 'GCash' && (
+                                                <p className="text-xs text-blue-600 mt-1">ℹ️ GCash QR code will be provided after order confirmation</p>
                                             )}
                                         </div>
                                         
@@ -1827,6 +1969,236 @@ export default function Order({ auth, dbMeals = [] }) {
                     </div>
                 </div>
             )}
+            {/* Order Confirmation Modal */}
+            {showConfirmOrderModal && pendingOrderData && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-bold text-gray-800">Confirm Your Order</h2>
+                            <button 
+                                onClick={() => setShowConfirmOrderModal(false)}
+                                className="text-gray-500 hover:text-gray-700"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        
+                        <div className="mb-6">
+                            <p className="text-gray-600 mb-4">Please review your order details below. You can edit any information before confirming.</p>
+                        </div>
+                        
+                        {/* Order Details */}
+                        <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Details</h3>
+                            
+                            {/* Package Info */}
+                            <div className="mb-4">
+                                <p className="text-sm text-gray-600 font-medium">Package:</p>
+                                <p className="text-gray-900">{pendingOrderData.package.name}</p>
+                                {orderType === 'fiesta' && (
+                                    <>
+                                        <p className="text-sm text-gray-600 mt-1">Set: {pendingOrderData.set}</p>
+                                        <p className="text-sm text-gray-600">Main Item: {pendingOrderData.mainItem}</p>
+                                    </>
+                                )}
+                            </div>
+                            
+                            {/* Dishes */}
+                            <div className="mb-4">
+                                <p className="text-sm text-gray-600 font-medium">Dishes:</p>
+                                {orderType === 'singlemeal' && pendingOrderData.dishDetails ? (
+                                    <ul className="list-disc list-inside text-gray-900">
+                                        {pendingOrderData.dishDetails.map((dish, index) => (
+                                            <li key={index}>{dish.name} x {dish.quantity} - ₱{dish.subtotal.toFixed(2)}</li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <ul className="list-disc list-inside text-gray-900">
+                                        {pendingOrderData.dishes.map((dish, index) => (
+                                            <li key={index}>{dish}</li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                            
+                            {/* Desserts (for fiesta only) */}
+                            {orderType === 'fiesta' && pendingOrderData.desserts && (
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-600 font-medium">Desserts:</p>
+                                    <ul className="list-disc list-inside text-gray-900">
+                                        {pendingOrderData.desserts.map((dessert, index) => (
+                                            <li key={index}>{dessert}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            
+                            {/* Price */}
+                            <div className="border-t pt-3 mt-3">
+                                <p className="text-lg font-bold text-red-600">
+                                    Total: {pendingOrderData.package.formattedPrice || `₱${parseFloat(pendingOrderData.package.price).toFixed(2)}`}
+                                </p>
+                            </div>
+                        </div>
+                        
+                        {/* Customer Information - Editable */}
+                        <div className="border-t pt-6 mb-6">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Information</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Name */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Name <span className="text-red-600">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={customerInfo.name}
+                                        onChange={(e) => setCustomerInfo(prev => ({ ...prev, name: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                    />
+                                </div>
+                                
+                                {/* Email */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Email <span className="text-red-600">*</span>
+                                    </label>
+                                    <input
+                                        type="email"
+                                        value={customerInfo.email}
+                                        onChange={(e) => setCustomerInfo(prev => ({ ...prev, email: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                    />
+                                </div>
+                                
+                                {/* Phone */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Phone Number <span className="text-red-600">*</span>
+                                    </label>
+                                    <input
+                                        type="tel"
+                                        value={customerInfo.phone}
+                                        onChange={(e) => setCustomerInfo(prev => ({ ...prev, phone: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                        placeholder="e.g., 0917 123 4567"
+                                    />
+                                </div>
+                                
+                                {/* Address */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Delivery Address <span className="text-red-600">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={customerInfo.address}
+                                        onChange={(e) => setCustomerInfo(prev => ({ ...prev, address: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                        placeholder="Enter your complete delivery address"
+                                    />
+                                </div>
+                                
+                                {/* Delivery Date */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Delivery Date <span className="text-red-600">*</span>
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={customerInfo.deliveryDate}
+                                        onChange={handleCustomerInfoChange}
+                                        name="deliveryDate"
+                                        min={getTomorrowDate()}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                    />
+                                </div>
+                                
+                                {/* Delivery Time */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Delivery Time <span className="text-red-600">*</span>
+                                    </label>
+                                    <input
+                                        type="time"
+                                        value={customerInfo.deliveryTime}
+                                        onChange={(e) => setCustomerInfo(prev => ({ ...prev, deliveryTime: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                    />
+                                </div>
+                                
+                                {/* Payment Method */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Payment Method <span className="text-red-600">*</span>
+                                    </label>
+                                    <select
+                                        value={customerInfo.paymentMethod}
+                                        onChange={handleCustomerInfoChange}
+                                        name="paymentMethod"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                    >
+                                        <option value="COD">Cash on Delivery (COD)</option>
+                                        <option value="GCash">GCash</option>
+                                    </select>
+                                    {customerInfo.paymentMethod === 'GCash' && (
+                                        <p className="text-xs text-blue-600 mt-1">ℹ️ GCash QR code will be provided after order confirmation</p>
+                                    )}
+                                </div>
+                                
+                                {/* Note */}
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Note (Optional)
+                                    </label>
+                                    <textarea
+                                        value={customerInfo.note}
+                                        onChange={(e) => setCustomerInfo(prev => ({ ...prev, note: e.target.value }))}
+                                        rows="3"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                                        placeholder="Add any special instructions or notes for your order..."
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {/* Action Buttons */}
+                        <div className="flex justify-between pt-4 border-t">
+                            <button
+                                onClick={() => {
+                                    setShowConfirmOrderModal(false);
+                                    // Reopen the appropriate modal based on order type
+                                    if (orderType === 'foodpax') {
+                                        setShowFoodPaxModal(true);
+                                    } else if (orderType === 'singlemeal') {
+                                        setShowSingleMealModal(true);
+                                    } else if (orderType === 'fiesta') {
+                                        setShowFiestaModal(true);
+                                    }
+                                }}
+                                className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                                disabled={isSubmitting}
+                            >
+                                Back to Edit
+                            </button>
+                            <button
+                                onClick={handleFinalOrderSubmission}
+                                disabled={isSubmitting || !customerInfo.name || !customerInfo.email || !customerInfo.phone || !customerInfo.address || !customerInfo.deliveryDate || !customerInfo.deliveryTime}
+                                className={`px-6 py-2 rounded-md text-white ${
+                                    (isSubmitting || !customerInfo.name || !customerInfo.email || !customerInfo.phone || !customerInfo.address || !customerInfo.deliveryDate || !customerInfo.deliveryTime)
+                                        ? 'bg-gray-400 cursor-not-allowed' 
+                                        : 'bg-red-600 hover:bg-red-700'
+                                }`}
+                            >
+                                {isSubmitting ? 'Processing...' : 'Confirm Order'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
             {notification.visible && (
                 <Notification
                     message={notification.message}

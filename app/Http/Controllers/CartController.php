@@ -86,8 +86,9 @@ class CartController extends Controller
             'customerInfo.deliveryDate' => 'required|date|after:today',
             'customerInfo.deliveryTime' => 'required|date_format:H:i',
             'customerInfo.paymentMethod' => 'required|string|in:COD,GCash',
-            'customerInfo.gcashNumber' => 'required_if:customerInfo.paymentMethod,GCash|nullable|string',
-            'customerInfo.gcashReceipt' => 'required_if:customerInfo.paymentMethod,GCash|nullable|image|max:5120',
+            // GCash details are optional during order placement - will be collected after order confirmation
+            'customerInfo.gcashNumber' => 'nullable|string',
+            'customerInfo.gcashReceipt' => 'nullable|image|max:5120',
         ]);
 
         // Calculate price
@@ -112,7 +113,14 @@ class CartController extends Controller
             $priceString = $request->input('package.price', '0');
             $numericPrice = (float) preg_replace('/[^0-9.]/', '', $priceString);
             $numberOfPax = $request->input('customerInfo.numberOfPax', 1);
-            $totalAmount = $numericPrice * $numberOfPax;
+            $calculatedTotal = $numericPrice * $numberOfPax;
+            
+            // For Food Pax: Apply min ₱1,000 and max ₱10,000 limits
+            if ($request->input('package.id') == 6) { // Food Pax package ID
+                $totalAmount = max(1000, min(10000, $calculatedTotal));
+            } else {
+                $totalAmount = $calculatedTotal;
+            }
         }
 
         // Handle GCash receipt upload

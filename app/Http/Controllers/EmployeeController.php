@@ -376,20 +376,21 @@ class EmployeeController extends Controller
  */
 public function inventory()
 {
-    // Fetch all ingredients from the Inventory model with their closest expiry date
+    // Fetch all ingredients from the Inventory model with their closest expiry date using FIFO
     $ingredients = \App\Models\Inventory::all()->map(function ($ingredient) {
-        // Get the closest expiry date from stock transaction items for this ingredient
-        $closestExpiryItem = \App\Models\StockTransactionItem::where('inventory_id', $ingredient->id)
-            ->whereNotNull('expiry_date')
-            ->where('expiry_date', '>=', now()->toDateString()) // Future or today
-            ->orderBy('expiry_date', 'asc')
-            ->first();
+        // Get the closest expiry date from the first available batch (FIFO)
+        $closestBatch = \App\Models\InventoryBatch::fifo($ingredient->id)->first();
 
-        $ingredient->closest_expiry_date = $closestExpiryItem ? $closestExpiryItem->expiry_date->format('Y-m-d') : null;
+        $ingredient->closest_expiry_date = $closestBatch && $closestBatch->expiry_date 
+            ? $closestBatch->expiry_date->format('Y-m-d') 
+            : null;
+        
+        // Add the quantity that will expire (from the closest expiring batch)
+        $ingredient->expiring_quantity = $closestBatch ? $closestBatch->quantity : 0;
         
         // Calculate days until expiry
-        if ($closestExpiryItem) {
-            $daysUntilExpiry = now()->diffInDays($closestExpiryItem->expiry_date, false);
+        if ($closestBatch && $closestBatch->expiry_date) {
+            $daysUntilExpiry = now()->diffInDays($closestBatch->expiry_date, false);
             $ingredient->days_until_expiry = floor($daysUntilExpiry);
         } else {
             $ingredient->days_until_expiry = null;
@@ -408,6 +409,7 @@ public function inventory()
                 'id' => $transaction->id,
                 'type' => $transaction->type,
                 'transaction_date' => $transaction->transaction_date->format('Y-m-d'),
+                'supplier' => $transaction->supplier,
                 'user_name' => $transaction->user ? $transaction->user->name : 'Unknown',
                 'items_count' => $transaction->items->count(),
                 'total_quantity' => $transaction->items->sum('quantity'),
@@ -488,6 +490,7 @@ public function storeInventory(Request $request)
 
             $validated = $request->validate([
                 'date' => 'required|date',
+                'supplier' => 'nullable|string|max:255',
                 'ingredients' => 'required|array',
                 'ingredients.*.id' => 'required|exists:inventories,id',
                 'ingredients.*.quantity' => 'required|numeric|min:0.01',
@@ -498,6 +501,7 @@ public function storeInventory(Request $request)
             $transaction = \App\Models\StockTransaction::create([
                 'type' => 'in',
                 'transaction_date' => $validated['date'],
+                'supplier' => $validated['supplier'] ?? null,
                 'user_id' => auth()->id(),
             ]);
 
@@ -511,13 +515,23 @@ public function storeInventory(Request $request)
                 $inventory->save();
 
                 // Create transaction item
-                \App\Models\StockTransactionItem::create([
+                $transactionItem = \App\Models\StockTransactionItem::create([
                     'stock_transaction_id' => $transaction->id,
                     'inventory_id' => $inventory->id,
                     'quantity' => $ingredientData['quantity'],
                     'quantity_before' => $oldQuantity,
                     'quantity_after' => $inventory->quantity,
                     'expiry_date' => $ingredientData['expiry_date'] ?? null,
+                ]);
+
+                // Create inventory batch for FIFO tracking
+                \App\Models\InventoryBatch::create([
+                    'inventory_id' => $inventory->id,
+                    'stock_transaction_item_id' => $transactionItem->id,
+                    'quantity' => $ingredientData['quantity'],
+                    'original_quantity' => $ingredientData['quantity'],
+                    'expiry_date' => $ingredientData['expiry_date'] ?? null,
+                    'stock_in_date' => $validated['date'],
                 ]);
                 
                 \Log::info('Updated inventory', [
@@ -578,6 +592,29 @@ public function storeInventory(Request $request)
                 }
                 
                 $oldQuantity = $inventory->quantity;
+                $remainingToRemove = $ingredientData['quantity'];
+
+                // Use FIFO to deduct from batches
+                $batches = \App\Models\InventoryBatch::fifo($inventory->id)->get();
+                
+                foreach ($batches as $batch) {
+                    if ($remainingToRemove <= 0) {
+                        break;
+                    }
+
+                    if ($batch->quantity >= $remainingToRemove) {
+                        // This batch has enough, deduct and we're done
+                        $batch->quantity -= $remainingToRemove;
+                        $batch->save();
+                        $remainingToRemove = 0;
+                    } else {
+                        // Consume entire batch and continue to next
+                        $remainingToRemove -= $batch->quantity;
+                        $batch->quantity = 0;
+                        $batch->save();
+                    }
+                }
+
                 // Subtract the stock out quantity from the current quantity
                 $inventory->quantity = $inventory->quantity - $ingredientData['quantity'];
                 $inventory->save();
@@ -616,6 +653,89 @@ public function storeInventory(Request $request)
             ]);
             
             return redirect()->back()->with('error', 'Failed to process stock out: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Update an existing stock transaction
+     */
+    public function updateTransaction(Request $request, $transactionId): RedirectResponse
+    {
+        try {
+            \Log::info('Transaction update request received', [
+                'transaction_id' => $transactionId,
+                'data' => $request->all()
+            ]);
+
+            $validated = $request->validate([
+                'items' => 'required|array',
+                'items.*.id' => 'required|exists:stock_transaction_items,id',
+                'items.*.quantity' => 'required|numeric|min:0.01',
+                'items.*.expiry_date' => 'nullable|date',
+                'items.*.reason' => 'nullable|string',
+            ]);
+
+            $transaction = \App\Models\StockTransaction::findOrFail($transactionId);
+            
+            foreach ($validated['items'] as $itemData) {
+                $transactionItem = \App\Models\StockTransactionItem::findOrFail($itemData['id']);
+                $inventory = \App\Models\Inventory::findOrFail($transactionItem->inventory_id);
+                
+                // Calculate the difference
+                $oldQuantity = $transactionItem->quantity;
+                $newQuantity = $itemData['quantity'];
+                $quantityDiff = $newQuantity - $oldQuantity;
+                
+                // Update inventory based on transaction type
+                if ($transaction->type === 'in') {
+                    // For stock in: adjust inventory by the difference
+                    $inventory->quantity = $inventory->quantity + $quantityDiff;
+                    
+                    // Update expiry date if provided
+                    if (isset($itemData['expiry_date'])) {
+                        $transactionItem->expiry_date = $itemData['expiry_date'];
+                    }
+                } else {
+                    // For stock out: adjust inventory by the difference (will be negative if increasing stock out)
+                    $newInventoryQuantity = $inventory->quantity - $quantityDiff;
+                    
+                    // Check if we have enough stock
+                    if ($newInventoryQuantity < 0) {
+                        return redirect()->back()->with('error', "Insufficient stock for {$inventory->name}. Available: {$inventory->quantity}");
+                    }
+                    
+                    $inventory->quantity = $newInventoryQuantity;
+                    
+                    // Update reason if provided
+                    if (isset($itemData['reason'])) {
+                        $transactionItem->reason = $itemData['reason'];
+                    }
+                }
+                
+                $inventory->save();
+                
+                // Update transaction item
+                $transactionItem->quantity = $newQuantity;
+                $transactionItem->quantity_after = $inventory->quantity;
+                $transactionItem->save();
+                
+                \Log::info('Updated transaction item', [
+                    'item_id' => $transactionItem->id,
+                    'ingredient' => $inventory->name,
+                    'old_quantity' => $oldQuantity,
+                    'new_quantity' => $newQuantity,
+                    'inventory_quantity' => $inventory->quantity,
+                ]);
+            }
+
+            return redirect()->back()->with('success', 'Transaction updated successfully!');
+        } catch (\Exception $e) {
+            \Log::error('Transaction update failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return redirect()->back()->with('error', 'Failed to update transaction: ' . $e->getMessage());
         }
     }
 
@@ -663,6 +783,39 @@ public function storeInventory(Request $request)
         ]);
     }
     
+    /**
+     * Get order limits
+     */
+    public function getOrderLimits(): \Illuminate\Http\JsonResponse
+    {
+        $fiestaLimit = \Cache::get('order_limit_fiesta', 3); // Default 3
+        $paxLimit = \Cache::get('order_limit_pax', 100); // Default 100
+        
+        return response()->json([
+            'fiesta_limit' => $fiestaLimit,
+            'pax_limit' => $paxLimit
+        ]);
+    }
+
+    /**
+     * Save order limits
+     */
+    public function saveOrderLimits(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'fiesta_limit' => 'required|integer|min:1',
+            'pax_limit' => 'required|integer|min:1'
+        ]);
+
+        \Cache::forever('order_limit_fiesta', $validated['fiesta_limit']);
+        \Cache::forever('order_limit_pax', $validated['pax_limit']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order limits updated successfully'
+        ]);
+    }
+
     /**
      * Get a human-readable error message for file upload error codes
      */
