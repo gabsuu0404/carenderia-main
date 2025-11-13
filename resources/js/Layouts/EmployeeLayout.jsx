@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Link } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
 
 export default function EmployeeLayout({ title = 'Employee', children }) {
 	const [sidebarOpen, setSidebarOpen] = useState(false);
+	const { auth } = usePage().props;
 
 	return (
 		<div className="min-h-screen bg-gray-100 flex">
@@ -30,7 +31,13 @@ export default function EmployeeLayout({ title = 'Employee', children }) {
 						</svg>
 					</button>
 					<h1 className="ml-2 md:ml-0 text-xl font-semibold text-gray-800">{title}</h1>
-					<div className="ml-auto">
+					<div className="ml-auto flex items-center gap-4">
+						<div className="flex items-center gap-2">
+							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-5 h-5 text-gray-600">
+								<path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+							</svg>
+							<span className="text-sm font-medium text-gray-700">{auth?.user?.name || 'Employee'}</span>
+						</div>
 						<Link href={route('logout')} method="post" as="button" className="px-3 py-1.5 rounded bg-blue-800 text-white text-sm hover:bg-blue-700">Logout</Link>
 					</div>
 				</header>

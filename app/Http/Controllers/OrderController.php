@@ -55,12 +55,43 @@ class OrderController extends Controller
         ]);
 
         $order = Order::findOrFail($id);
-        $order->status = $request->input('status');
+        $oldStatus = $order->status;
+        $newStatus = $request->input('status');
+        
+        $order->status = $newStatus;
         $order->save();
+
+        // Send notification to customer when order is confirmed
+        if ($newStatus === 'confirmed' && $oldStatus !== 'confirmed') {
+            $user = $order->user;
+            
+            if ($user) {
+                // Create a notification message
+                $message = "Your order #{$order->id} has been confirmed!";
+                
+                // If payment method is GCash, add payment instruction
+                if ($order->payment_method === 'GCash') {
+                    $message .= " You can now proceed with GCash payment. Please check your orders page for payment details.";
+                }
+                
+                // Send notification (you can implement email/SMS here)
+                // For now, we'll use Laravel's notification system or flash message
+                \Log::info("Order confirmed notification", [
+                    'order_id' => $order->id,
+                    'user_id' => $user->id,
+                    'payment_method' => $order->payment_method,
+                    'message' => $message
+                ]);
+                
+                // You can send email notification here
+                // Mail::to($user->email)->send(new OrderConfirmed($order));
+            }
+        }
 
         return response()->json([
             'success' => true,
-            'order' => $order
+            'order' => $order,
+            'message' => $newStatus === 'confirmed' ? 'Order confirmed successfully! Customer has been notified.' : 'Order status updated successfully.'
         ]);
     }
     
@@ -93,9 +124,13 @@ class OrderController extends Controller
                     'delivery_time' => $order->delivery_time,
                     'delivery_address' => $order->delivery_address,
                     'notes' => $order->notes,
+                    'number_of_pax' => $order->number_of_pax,
                     'selected_dishes' => $selectedDishes,
                     'selected_desserts' => $selectedDesserts,
                     'status' => $order->status,
+                    'payment_method' => $order->payment_method,
+                    'gcash_number' => $order->gcash_number,
+                    'gcash_receipt' => $order->gcash_receipt,
                     'created_at' => $order->created_at->format('M d, Y H:i'),
                     'can_edit' => $order->status === 'pending',
                 ];
@@ -402,6 +437,129 @@ class OrderController extends Controller
     }
     
     /**
+     * Submit GCash payment for a confirmed order.
+     *
+     * @param  int  $id
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function submitGCashPayment($id, Request $request)
+    {
+        // Find the order and make sure it belongs to the authenticated user
+        $order = Order::where('id', $id)
+            ->where('user_id', Auth::id())
+            ->where('status', 'confirmed') // Only allow payment for confirmed orders
+            ->where('payment_method', 'GCash')
+            ->firstOrFail();
+        
+        // Validate the request
+        $request->validate([
+            'gcash_number' => 'required|string|max:20',
+            'gcash_receipt' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120' // Max 5MB
+        ]);
+        
+        // Handle the receipt file upload
+        if ($request->hasFile('gcash_receipt')) {
+            $file = $request->file('gcash_receipt');
+            $filename = 'gcash_receipt_' . $order->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+            $path = $file->storeAs('gcash_receipts', $filename, 'public');
+            
+            // Update the order with GCash payment information
+            $order->gcash_number = $request->input('gcash_number');
+            $order->gcash_receipt = $path;
+            $order->save();
+            
+            \Log::info('GCash payment submitted', [
+                'order_id' => $order->id,
+                'gcash_number' => $request->input('gcash_number'),
+                'receipt_path' => $path
+            ]);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment submitted successfully! Your receipt is being verified.'
+            ]);
+        }
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to upload receipt. Please try again.'
+        ], 400);
+    }
+    
+    /**
+     * Check if a date is available for ordering.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\JsonResponse
+     */
+    public function checkDateAvailability(Request $request)
+    {
+        $request->validate([
+            'date' => 'required|date',
+            'is_fiesta_package' => 'boolean',
+            'number_of_pax' => 'integer|min:1'
+        ]);
+        
+        $date = $request->input('date');
+        $isFiestaPackage = $request->input('is_fiesta_package', false);
+        $requestedPax = $request->input('number_of_pax', 0);
+        
+        // Get saved limits from cache (with defaults)
+        $fiestaLimit = \Cache::get('order_limit_fiesta', 3);
+        $paxLimit = \Cache::get('order_limit_pax', 100);
+
+        // Check Filipino Fiesta package limit
+        $fiestaOrdersCount = Order::whereDate('delivery_date', $date)
+            ->whereNotNull('package_set')
+            ->where('status', '!=', 'cancelled')
+            ->count();
+        
+        // Check total pax for the date (only Food Pax orders, NOT Fiesta packages)
+        $totalPaxForDate = Order::whereDate('delivery_date', $date)
+            ->whereNull('package_set')
+            ->where('status', '!=', 'cancelled')
+            ->sum('number_of_pax');
+        
+        $remainingPax = $paxLimit - $totalPaxForDate;
+        $fiestaAvailable = $fiestaOrdersCount < $fiestaLimit;
+        $paxAvailable = ($totalPaxForDate + $requestedPax) <= $paxLimit;
+        
+        // Date is available if:
+        // 1. For fiesta packages: ONLY check fiesta limit (ignore pax limit)
+        // 2. For Food Pax orders: ONLY check pax limit (ignore fiesta limit)
+        $isAvailable = $isFiestaPackage 
+            ? $fiestaAvailable
+            : $paxAvailable;
+        
+        \Log::info('Date availability check', [
+            'date' => $date,
+            'is_fiesta_package' => $isFiestaPackage,
+            'requested_pax' => $requestedPax,
+            'fiesta_orders_count' => $fiestaOrdersCount,
+            'food_pax_total' => $totalPaxForDate,
+            'remaining_pax' => $remainingPax
+        ]);
+
+        return response()->json([
+            'available' => $isAvailable,
+            'fiesta_orders_count' => $fiestaOrdersCount,
+            'fiesta_limit' => $fiestaLimit,
+            'total_pax' => $totalPaxForDate,
+            'pax_limit' => $paxLimit,
+            'remaining_pax' => $remainingPax,
+            'fiesta_available' => $fiestaAvailable,
+            'is_fiesta_package' => $isFiestaPackage,
+            'requested_pax' => $requestedPax,
+            'message' => !$isAvailable 
+                ? (($isFiestaPackage && !$fiestaAvailable) 
+                    ? "This date has reached the maximum of {$fiestaLimit} Filipino Fiesta Package orders." 
+                    : "This date has insufficient pax capacity. Only {$remainingPax} pax remaining.")
+                : 'Date is available for booking.'
+        ]);
+    }
+    
+    /**
      * Store a new order.
      *
      * @param  \Illuminate\Http\Request  $request
@@ -426,8 +584,9 @@ class OrderController extends Controller
             'customerInfo.deliveryDate' => 'required|date|after:today',
             'customerInfo.deliveryTime' => 'required|date_format:H:i',
             'customerInfo.paymentMethod' => 'required|string|in:COD,GCash',
-            'customerInfo.gcashNumber' => 'required_if:customerInfo.paymentMethod,GCash|nullable|string',
-            'customerInfo.gcashReceipt' => 'required_if:customerInfo.paymentMethod,GCash|nullable|image|max:5120',
+            // GCash details are optional during order placement - will be collected after order confirmation
+            'customerInfo.gcashNumber' => 'nullable|string',
+            'customerInfo.gcashReceipt' => 'nullable|image|max:5120',
         ];
         
         // Check if this is a Filipino Fiesta Package order (has set and desserts)
@@ -464,34 +623,41 @@ class OrderController extends Controller
         // Check order limits for the requested delivery date
         $deliveryDate = $request->input('customerInfo.deliveryDate');
         
-        // Check Filipino Fiesta package limit (max 3 per day)
+        // Get saved limits from cache (with defaults)
+        $fiestaLimit = \Cache::get('order_limit_fiesta', 3);
+        $paxLimit = \Cache::get('order_limit_pax', 100);
+        
+        // Check Filipino Fiesta package limit (ONLY for Fiesta orders)
         if ($isFiestaPackage) {
             $fiestaOrdersCount = Order::whereDate('delivery_date', $deliveryDate)
                 ->whereNotNull('package_set') // Filipino Fiesta packages have package_set
                 ->where('status', '!=', 'cancelled')
                 ->count();
                 
-            if ($fiestaOrdersCount >= 3) {
+            if ($fiestaOrdersCount >= $fiestaLimit) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Sorry, we can only cater up to 3 Filipino Fiesta Package orders per day. This date is already fully booked for fiesta packages.'
+                    'message' => "Sorry, we can only cater up to {$fiestaLimit} Filipino Fiesta Package orders per day. This date is already fully booked for fiesta packages."
                 ], 422);
             }
         }
         
-        // Check total pax limit (max 100 pax per day)
-        $totalPaxForDate = Order::whereDate('delivery_date', $deliveryDate)
-            ->where('status', '!=', 'cancelled')
-            ->sum('number_of_pax');
+        // Check total pax limit (ONLY for Food Pax orders, NOT Fiesta packages)
+        if (!$isFiestaPackage) {
+            $totalPaxForDate = Order::whereDate('delivery_date', $deliveryDate)
+                ->whereNull('package_set') // Only count Food Pax orders
+                ->where('status', '!=', 'cancelled')
+                ->sum('number_of_pax');
+                
+            $requestedPax = $request->input('customerInfo.numberOfPax', 0);
             
-        $requestedPax = $request->input('customerInfo.numberOfPax', 0);
-        
-        if (($totalPaxForDate + $requestedPax) > 100) {
-            $remainingPax = 100 - $totalPaxForDate;
-            return response()->json([
-                'success' => false,
-                'message' => "Sorry, we can only cater up to 100 total pax per day. This date already has {$totalPaxForDate} pax booked. Only {$remainingPax} pax remaining."
-            ], 422);
+            if (($totalPaxForDate + $requestedPax) > $paxLimit) {
+                $remainingPax = $paxLimit - $totalPaxForDate;
+                return response()->json([
+                    'success' => false,
+                    'message' => "Sorry, we can only cater up to {$paxLimit} total pax per day. This date already has {$totalPaxForDate} pax booked. Only {$remainingPax} pax remaining."
+                ], 422);
+            }
         }
 
         // Calculate price based on package type

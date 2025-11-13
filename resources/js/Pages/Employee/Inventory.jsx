@@ -12,11 +12,14 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 	const [showStockModal, setShowStockModal] = useState(false);
 	const [stockAction, setStockAction] = useState(null); // 'in' or 'out' or 'history'
 	const [stockInDate, setStockInDate] = useState('');
+	const [stockInSupplier, setStockInSupplier] = useState('');
 	const [selectedIngredients, setSelectedIngredients] = useState([]);
 	const [stockInData, setStockInData] = useState({});
 	const [stockOutDate, setStockOutDate] = useState('');
 	const [stockOutData, setStockOutData] = useState({});
 	const [selectedTransaction, setSelectedTransaction] = useState(null);
+	const [isEditingTransaction, setIsEditingTransaction] = useState(false);
+	const [editedTransactionItems, setEditedTransactionItems] = useState({});
 
 	const { data, setData, post, put, processing, errors, reset } = useForm({
 		name: '',
@@ -93,12 +96,14 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 
 		console.log('Sending stock in data:', {
 			date: stockInDate,
+			supplier: stockInSupplier,
 			ingredients: ingredientsToStockIn,
 		});
 
 		// Use router.post instead of the useForm post
 		router.post(route('employee.inventory.stock-in'), {
 			date: stockInDate,
+			supplier: stockInSupplier,
 			ingredients: ingredientsToStockIn,
 		}, {
 			onSuccess: () => {
@@ -107,6 +112,7 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 				setShowStockModal(false);
 				setStockAction(null);
 				setStockInDate('');
+				setStockInSupplier('');
 				setSelectedIngredients([]);
 				setStockInData({});
 			},
@@ -161,6 +167,54 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 		});
 	};
 
+	const handleEditTransaction = () => {
+		setIsEditingTransaction(true);
+		// Initialize edited items with current values
+		const initialData = {};
+		selectedTransaction.items.forEach(item => {
+			initialData[item.id] = {
+				quantity: item.quantity,
+				expiry_date: item.expiry_date || '',
+				reason: item.reason || ''
+			};
+		});
+		setEditedTransactionItems(initialData);
+	};
+
+	const handleSaveTransactionEdit = () => {
+		const updatedItems = selectedTransaction.items.map(item => ({
+			id: item.id,
+			quantity: parseFloat(editedTransactionItems[item.id]?.quantity || item.quantity),
+			expiry_date: selectedTransaction.type === 'in' ? (editedTransactionItems[item.id]?.expiry_date || item.expiry_date) : null,
+			reason: selectedTransaction.type === 'out' ? (editedTransactionItems[item.id]?.reason || item.reason) : null,
+		}));
+
+		console.log('Saving transaction edit:', {
+			transaction_id: selectedTransaction.id,
+			items: updatedItems
+		});
+
+		router.put(route('employee.inventory.update-transaction', selectedTransaction.id), {
+			items: updatedItems
+		}, {
+			onSuccess: () => {
+				console.log('Transaction updated successfully!');
+				setIsEditingTransaction(false);
+				setSelectedTransaction(null);
+				setEditedTransactionItems({});
+			},
+			onError: (errors) => {
+				console.error('Transaction update failed:', errors);
+				alert('Failed to update transaction. Please try again.');
+			},
+		});
+	};
+
+	const handleCancelEdit = () => {
+		setIsEditingTransaction(false);
+		setEditedTransactionItems({});
+	};
+
 	return (
 		<EmployeeLayout title="Manage Inventory">
 			<Head title="Manage Inventory" />
@@ -195,7 +249,7 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 									<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ingredient Name</th>
 									<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
 									<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
-									<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Closest Expiry</th>
+									<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry</th>
 									<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
 								</tr>
 							</thead>
@@ -230,6 +284,9 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 												{ingredient.closest_expiry_date ? (
 													<div>
 														<div>{ingredient.closest_expiry_date}</div>
+														<div className="text-xs font-semibold text-gray-600">
+															{ingredient.expiring_quantity} {ingredient.unit} will expire
+														</div>
 														{daysUntilExpiry !== null && (
 															<div className="text-xs">
 																{daysUntilExpiry < 0 ? (
@@ -403,9 +460,6 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 																</div>
 															</div>
 															<div className="text-right">
-																<p className={`font-bold ${transaction.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
-																	{transaction.type === 'in' ? '+' : '-'}{transaction.total_quantity}
-																</p>
 																<p className="text-xs text-gray-500">{transaction.user_name}</p>
 															</div>
 														</div>
@@ -427,6 +481,19 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 											type="date"
 											value={stockInDate}
 											onChange={(e) => setStockInDate(e.target.value)}
+											className="w-full"
+										/>
+									</div>
+
+									<div>
+										<label className="block text-sm font-medium text-gray-700 mb-1">
+											Supplier / Source
+										</label>
+										<TextInput
+											type="text"
+											value={stockInSupplier}
+											onChange={(e) => setStockInSupplier(e.target.value)}
+											placeholder="e.g., ABC Supplier, Local Market"
 											className="w-full"
 										/>
 									</div>
@@ -518,6 +585,7 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 											onClick={() => {
 												setStockAction(null);
 												setStockInDate('');
+												setStockInSupplier('');
 												setSelectedIngredients([]);
 												setStockInData({});
 											}}
@@ -683,15 +751,25 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 						<div className="mt-3">
 							<div className="flex justify-between items-center mb-6">
 								<div>
-									<h3 className="text-xl font-bold text-gray-900">
+									<h3 className="text-xl font-semibold text-gray-900">
 										Stock {selectedTransaction.type === 'in' ? 'In' : 'Out'} Details
+										{isEditingTransaction && <span className="ml-2 text-sm text-blue-600">(Editing)</span>}
 									</h3>
 									<p className="text-sm text-gray-500 mt-1">
 										Date: {selectedTransaction.transaction_date} • By: {selectedTransaction.user_name}
 									</p>
+									{selectedTransaction.supplier && selectedTransaction.type === 'in' && (
+										<p className="text-sm text-gray-600 mt-1">
+											<span className="font-medium">Supplier:</span> {selectedTransaction.supplier}
+										</p>
+									)}
 								</div>
 								<button
-									onClick={() => setSelectedTransaction(null)}
+									onClick={() => {
+										setSelectedTransaction(null);
+										setIsEditingTransaction(false);
+										setEditedTransactionItems({});
+									}}
 									className="text-gray-400 hover:text-gray-600"
 								>
 									<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -723,24 +801,76 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 													{item.ingredient_name}
 												</td>
 												<td className="px-4 py-3 text-sm">
-													<span className={`font-bold ${selectedTransaction.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
-														{selectedTransaction.type === 'in' ? '+' : '-'}{item.quantity} {item.ingredient_unit}
-													</span>
+													{isEditingTransaction ? (
+														<TextInput
+															type="number"
+															step="0.01"
+															min="0.01"
+															value={editedTransactionItems[item.id]?.quantity ?? item.quantity}
+															onChange={(e) => setEditedTransactionItems({
+																...editedTransactionItems,
+																[item.id]: {
+																	...editedTransactionItems[item.id],
+																	quantity: e.target.value
+																}
+															})}
+															className="w-32"
+														/>
+													) : (
+														<span className={`font-bold ${selectedTransaction.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
+															{selectedTransaction.type === 'in' ? '+' : '-'}{item.quantity} {item.ingredient_unit}
+														</span>
+													)}
 												</td>
 												<td className="px-4 py-3 text-sm text-gray-700">
 													{item.quantity_before} {item.ingredient_unit}
 												</td>
 												<td className="px-4 py-3 text-sm text-gray-700">
-													{item.quantity_after} {item.ingredient_unit}
+													{isEditingTransaction ? (
+														<span className="text-gray-400 italic">Will be recalculated</span>
+													) : (
+														`${item.quantity_after} ${item.ingredient_unit}`
+													)}
 												</td>
 												{selectedTransaction.type === 'in' && (
 													<td className="px-4 py-3 text-sm text-gray-700">
-														{item.expiry_date || 'N/A'}
+														{isEditingTransaction ? (
+															<TextInput
+																type="date"
+																value={editedTransactionItems[item.id]?.expiry_date ?? item.expiry_date ?? ''}
+																onChange={(e) => setEditedTransactionItems({
+																	...editedTransactionItems,
+																	[item.id]: {
+																		...editedTransactionItems[item.id],
+																		expiry_date: e.target.value
+																	}
+																})}
+																className="w-full"
+															/>
+														) : (
+															item.expiry_date || 'N/A'
+														)}
 													</td>
 												)}
 												{selectedTransaction.type === 'out' && (
 													<td className="px-4 py-3 text-sm text-gray-700">
-														{item.reason || 'Not specified'}
+														{isEditingTransaction ? (
+															<TextInput
+																type="text"
+																value={editedTransactionItems[item.id]?.reason ?? item.reason ?? ''}
+																onChange={(e) => setEditedTransactionItems({
+																	...editedTransactionItems,
+																	[item.id]: {
+																		...editedTransactionItems[item.id],
+																		reason: e.target.value
+																	}
+																})}
+																className="w-full"
+																placeholder="Enter reason"
+															/>
+														) : (
+															item.reason || 'Not specified'
+														)}
 													</td>
 												)}
 											</tr>
@@ -749,13 +879,46 @@ export default function Inventory({ ingredients = [], stockTransactions = [], su
 								</table>
 							</div>
 
-							<div className="mt-6 flex justify-end">
-								<button
-									onClick={() => setSelectedTransaction(null)}
-									className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-								>
-									Close
-								</button>
+							<div className="mt-6 flex justify-between items-center">
+								{isEditingTransaction ? (
+									<>
+										<button
+											onClick={handleCancelEdit}
+											className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
+										>
+											Cancel
+										</button>
+										<button
+											onClick={handleSaveTransactionEdit}
+											disabled={processing}
+											className="px-6 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+										>
+											{processing ? 'Saving...' : 'Save Changes'}
+										</button>
+									</>
+								) : (
+									<>
+										<button
+											onClick={handleEditTransaction}
+											className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 flex items-center gap-2"
+										>
+											<svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+												<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+											</svg>
+											Edit
+										</button>
+										<button
+											onClick={() => {
+												setSelectedTransaction(null);
+												setIsEditingTransaction(false);
+												setEditedTransactionItems({});
+											}}
+											className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
+										>
+											Close
+										</button>
+									</>
+								)}
 							</div>
 						</div>
 					</div>

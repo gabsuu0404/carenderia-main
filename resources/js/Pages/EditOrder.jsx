@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
+import axios from 'axios';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Notification from '@/Components/Notification';
 
@@ -15,6 +16,9 @@ export default function EditOrder({ auth, order, foodPaxDishes, fiestaDishes, fi
         type: 'success',
         visible: false
     });
+    
+    // Track date validation state
+    const [dateCheckLoading, setDateCheckLoading] = useState(false);
     
     // Set up state for selections
     const [selectedDishes, setSelectedDishes] = useState([]);
@@ -251,9 +255,64 @@ export default function EditOrder({ auth, order, foodPaxDishes, fiestaDishes, fi
         });
     };
     
+    // Function to check date availability
+    const checkDateAvailability = async (date, isFiestaPackage = false, numberOfPax = 1) => {
+        try {
+            const response = await axios.post(route('orders.check-date'), {
+                date: date,
+                is_fiesta_package: isFiestaPackage,
+                number_of_pax: numberOfPax
+            });
+            
+            return response.data;
+        } catch (error) {
+            console.error('Error checking date availability:', error);
+            return { available: true }; // Default to available on error to not block user
+        }
+    };
+    
     // Handle input changes
-    const handleInputChange = (e) => {
+    const handleInputChange = async (e) => {
         const { name, value } = e.target;
+        
+        // If delivery date changed, check availability
+        if (name === 'delivery_date' && value !== data.delivery_date) {
+            setDateCheckLoading(true);
+            const numberOfPax = data.number_of_pax || 1;
+            
+            const availability = await checkDateAvailability(value, isFiestaPackage, numberOfPax);
+            
+            if (!availability.available) {
+                setNotification({
+                    message: availability.message || 'This date is not available for booking.',
+                    type: 'error',
+                    visible: true
+                });
+                setDateCheckLoading(false);
+                // Don't update the date if it's not available
+                return;
+            }
+            setDateCheckLoading(false);
+        }
+        
+        // If number of pax changed and a date is selected, recheck availability
+        if (name === 'number_of_pax' && data.delivery_date) {
+            setDateCheckLoading(true);
+            
+            const availability = await checkDateAvailability(data.delivery_date, isFiestaPackage, parseInt(value) || 1);
+            
+            if (!availability.available) {
+                setNotification({
+                    message: availability.message || 'The selected date cannot accommodate this many pax.',
+                    type: 'error',
+                    visible: true
+                });
+                setDateCheckLoading(false);
+                // Still update the pax number but show warning
+            }
+            setDateCheckLoading(false);
+        }
+        
         setData(name, value);
     };
     
@@ -488,28 +547,39 @@ export default function EditOrder({ auth, order, foodPaxDishes, fiestaDishes, fi
                                             <label htmlFor="delivery_date" className="block text-sm font-medium text-gray-700 mb-1">
                                                 Delivery Date <span className="text-red-600">*</span>
                                             </label>
-                                            <input
-                                                type="date"
-                                                id="delivery_date"
-                                                name="delivery_date"
-                                                value={data.delivery_date}
-                                                onChange={handleInputChange}
-                                                min={(() => {
-                                                    // Allow the existing date or today (whichever is earlier)
-                                                    const today = new Date();
-                                                    today.setHours(0, 0, 0, 0);
-                                                    
-                                                    // If we have an existing date that's before today, use that
-                                                    const existingDate = new Date(data.delivery_date);
-                                                    if (existingDate < today) {
-                                                        return data.delivery_date;
-                                                    }
-                                                    
-                                                    return today.toISOString().split('T')[0];
-                                                })()}
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                                                required
-                                            />
+                                            <div className="relative">
+                                                <input
+                                                    type="date"
+                                                    id="delivery_date"
+                                                    name="delivery_date"
+                                                    value={data.delivery_date}
+                                                    onChange={handleInputChange}
+                                                    min={(() => {
+                                                        // Allow the existing date or today (whichever is earlier)
+                                                        const today = new Date();
+                                                        today.setHours(0, 0, 0, 0);
+                                                        
+                                                        // If we have an existing date that's before today, use that
+                                                        const existingDate = new Date(data.delivery_date);
+                                                        if (existingDate < today) {
+                                                            return data.delivery_date;
+                                                        }
+                                                        
+                                                        return today.toISOString().split('T')[0];
+                                                    })()}
+                                                    disabled={dateCheckLoading}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100"
+                                                    required
+                                                />
+                                                {dateCheckLoading && (
+                                                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                                        <svg className="animate-spin h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                    </div>
+                                                )}
+                                            </div>
                                             {errors.delivery_date && (
                                                 <div className="text-red-500 text-sm mt-1">{errors.delivery_date}</div>
                                             )}

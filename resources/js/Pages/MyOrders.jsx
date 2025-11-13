@@ -2,6 +2,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { useState, useEffect } from 'react';
 import Notification from '@/Components/Notification';
+import axios from 'axios';
 
 export default function MyOrders({ auth, orders, pendingOrdersCount }) {
     const page = usePage();
@@ -13,6 +14,35 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
         type: flash.success ? 'success' : flash.error ? 'error' : null,
         visible: !!(flash.success || flash.error)
     });
+    
+    // State for confirmed orders popup
+    const [showConfirmedOrdersModal, setShowConfirmedOrdersModal] = useState(false);
+    const [confirmedOrders, setConfirmedOrders] = useState([]);
+    const [selectedOrderForPayment, setSelectedOrderForPayment] = useState(null);
+    const [showGCashQRModal, setShowGCashQRModal] = useState(false);
+    const [gcashNumber, setGcashNumber] = useState('');
+    const [gcashReceipt, setGcashReceipt] = useState(null);
+
+    // Check for newly confirmed orders and show popup automatically
+    useEffect(() => {
+        const confirmedUnpaidOrders = (orders || []).filter(order => {
+            // Show confirmed orders that need payment action
+            if (order.status === 'confirmed') {
+                // For GCash orders, only show if payment not yet submitted (no receipt)
+                if (order.payment_method === 'GCash') {
+                    return !order.gcash_receipt || order.gcash_receipt === null;
+                }
+                // For COD orders, always show
+                return true;
+            }
+            return false;
+        });
+
+        if (confirmedUnpaidOrders.length > 0) {
+            setConfirmedOrders(confirmedUnpaidOrders);
+            setShowConfirmedOrdersModal(true);
+        }
+    }, [orders]);
 
     // Filter orders by status and search term
     const filteredOrders = (orders || []).filter(order => {
@@ -130,19 +160,19 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                     <table className="min-w-full divide-y divide-gray-200">
                                         <thead className="bg-gray-50">
                                             <tr>
-                                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-2/5">
                                                     Order Details
                                                 </th>
-                                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-auto">
                                                     Status
                                                 </th>
-                                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-auto">
                                                     Delivery
                                                 </th>
-                                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-auto">
                                                     Total
                                                 </th>
-                                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-auto">
                                                     Actions
                                                 </th>
                                             </tr>
@@ -150,19 +180,19 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                         <tbody className="bg-white divide-y divide-gray-200">
                                             {filteredOrders.map((order) => (
                                                 <tr key={order.id} className="hover:bg-gray-50">
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <div className="flex flex-col">
-                                                            <div className="font-medium text-gray-900">
+                                                    <td className="px-4 py-4">
+                                                        <div className="flex flex-col max-w-xs">
+                                                            <div className="font-medium text-gray-900 text-sm">
                                                                 {order.package_name}
                                                                 {order.package_set && (
-                                                                    <span className="ml-1 text-sm text-gray-500">
+                                                                    <span className="ml-1 text-xs text-gray-500">
                                                                         (Set {order.package_set})
                                                                     </span>
                                                                 )}
                                                             </div>
-                                                            <div className="text-sm text-gray-500">
+                                                            <div className="text-xs text-gray-500 truncate">
                                                                 {order.selected_dishes && (
-                                                                    <span>{order.selected_dishes.join(', ')}</span>
+                                                                    <span className="line-clamp-2">{order.selected_dishes.join(', ')}</span>
                                                                 )}
                                                                 {order.main_item && (
                                                                     <div className="text-xs font-medium text-gray-600">
@@ -171,33 +201,50 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                 )}
                                                             </div>
                                                             <div className="text-xs text-gray-400 mt-1">
-                                                                Ordered: {order.created_at}
+                                                                {order.created_at}
                                                             </div>
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(order.status)}`}>
-                                                            {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                                                        </span>
+                                                    <td className="px-4 py-4 whitespace-nowrap">
+                                                        <div className="flex flex-col gap-1">
+                                                            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(order.status)}`}>
+                                                                {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                                                            </span>
+                                                            {/* Payment Status Badge */}
+                                                            {order.payment_method === 'GCash' && order.gcash_receipt && (
+                                                                <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                                                    Paid
+                                                                </span>
+                                                            )}
+                                                            {order.payment_method === 'COD' && order.status !== 'pending' && (
+                                                                <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600">
+                                                                    COD
+                                                                </span>
+                                                            )}
+                                                            {order.payment_method === 'GCash' && !order.gcash_receipt && order.status === 'confirmed' && (
+                                                                <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                                                    Unpaid
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <div className="text-sm text-gray-900">
+                                                    <td className="px-4 py-4">
+                                                        <div className="text-sm text-gray-900 whitespace-nowrap">
                                                             {new Date(order.delivery_date).toLocaleDateString('en-US', {
-                                                                weekday: 'short',
                                                                 month: 'short',
                                                                 day: 'numeric'
                                                             })}
                                                         </div>
-                                                        <div className="text-xs text-gray-500">
+                                                        <div className="text-xs text-gray-500 max-w-[150px] truncate">
                                                             {order.delivery_address}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                    <td className="px-4 py-4 whitespace-nowrap">
                                                         <div className="text-sm font-medium text-gray-900">
                                                             {formatPrice(order.total_amount)}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                         {order.status === 'pending' && (
                                                             <>
                                                                 <Link
@@ -298,6 +345,11 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                         </div>
                                                                     )}
                                                                     
+                                                                    <div className="mb-4">
+                                                                        <div className="font-medium">Number of Pax</div>
+                                                                        <div className="text-gray-800">{order.number_of_pax || 1}</div>
+                                                                    </div>
+                                                                    
                                                                     {order.selected_dishes && order.selected_dishes.length > 0 && (
                                                                         <div className="mb-4">
                                                                             <div className="font-medium">Selected Dishes</div>
@@ -341,6 +393,34 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                             <div className="text-gray-800 whitespace-pre-wrap">{order.notes}</div>
                                                                         </div>
                                                                     )}
+                                                                    
+                                                                    <div className="mb-4">
+                                                                        <div className="font-medium">Payment Information</div>
+                                                                        <div className="text-gray-800">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span>Method:</span>
+                                                                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                                                                    order.payment_method === 'GCash' 
+                                                                                        ? 'bg-blue-100 text-blue-800' 
+                                                                                        : 'bg-gray-100 text-gray-800'
+                                                                                }`}>
+                                                                                    {order.payment_method || 'COD'}
+                                                                                </span>
+                                                                            </div>
+                                                                            {order.payment_method === 'GCash' && (
+                                                                                <div className="mt-1 flex items-center gap-2">
+                                                                                    <span>Status:</span>
+                                                                                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                                                                        order.gcash_receipt 
+                                                                                            ? 'bg-green-100 text-green-800' 
+                                                                                            : 'bg-yellow-100 text-yellow-800'
+                                                                                    }`}>
+                                                                                        {order.gcash_receipt ? 'Paid' : 'Pending Payment'}
+                                                                                    </span>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
                                                                     
                                                                     <div className="mt-6 border-t border-gray-200 pt-4">
                                                                         <div className="flex justify-between font-bold">
@@ -414,6 +494,283 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                     </div>
                 </div>
             </div>
+
+            {/* Confirmed Orders Popup Modal */}
+            {showConfirmedOrdersModal && confirmedOrders.length > 0 && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                        <div className="p-6">
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-800">🎉 Orders Confirmed!</h2>
+                                    <p className="text-gray-600 mt-1">The following orders have been confirmed and are ready for payment</p>
+                                </div>
+                                <button 
+                                    onClick={() => setShowConfirmedOrdersModal(false)}
+                                    className="text-gray-500 hover:text-gray-700"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <div className="space-y-4">
+                                {confirmedOrders.map((order) => (
+                                    <div key={order.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-3 mb-2">
+                                                    <h3 className="text-lg font-semibold text-gray-900">Order #{order.id}</h3>
+                                                    <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                                                        Confirmed
+                                                    </span>
+                                                </div>
+                                                
+                                                <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+                                                    <div>
+                                                        <span className="text-gray-600">Package:</span>
+                                                        <span className="ml-2 font-medium text-gray-900">{order.package_name}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-gray-600">Total Amount:</span>
+                                                        <span className="ml-2 font-medium text-gray-900">₱{parseFloat(order.total_amount).toFixed(2)}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-gray-600">Delivery Date:</span>
+                                                        <span className="ml-2 font-medium text-gray-900">{new Date(order.delivery_date).toLocaleDateString()}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-gray-600">Payment Method:</span>
+                                                        <span className="ml-2 font-medium text-gray-900">{order.payment_method}</span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-sm">
+                                                    <span className="text-gray-600">Dishes:</span>
+                                                    <span className="ml-2 text-gray-900">{order.selected_dishes?.join(', ') || 'N/A'}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="ml-4">
+                                                {order.payment_method === 'GCash' ? (
+                                                    // Check if payment has been submitted (gcash_receipt exists)
+                                                    order.gcash_receipt ? (
+                                                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                                                            <p className="text-sm font-medium text-green-800">Paid via GCash</p>
+                                                            <p className="text-xs text-green-600 mt-1">Payment submitted</p>
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedOrderForPayment(order);
+                                                                setGcashNumber('');
+                                                                setGcashReceipt(null);
+                                                                setShowGCashQRModal(true);
+                                                            }}
+                                                            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
+                                                        >
+                                                            Pay Now with GCash
+                                                        </button>
+                                                    )
+                                                ) : (
+                                                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                                                        <p className="text-sm font-medium text-green-800">Cash on Delivery</p>
+                                                        <p className="text-xs text-green-600 mt-1">Pay upon delivery</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="mt-6 flex justify-end">
+                                <button
+                                    onClick={() => setShowConfirmedOrdersModal(false)}
+                                    className="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-6 rounded-lg"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* GCash QR Code Payment Modal */}
+            {showGCashQRModal && selectedOrderForPayment && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <div className="p-6">
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-800">GCash Payment</h2>
+                                    <p className="text-gray-600 mt-1">Order #{selectedOrderForPayment.id}</p>
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        setShowGCashQRModal(false);
+                                        setSelectedOrderForPayment(null);
+                                    }}
+                                    className="text-gray-500 hover:text-gray-700"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <div className="border-t border-b py-4 mb-6">
+                                <div className="flex justify-between text-lg">
+                                    <span className="text-gray-700 font-medium">Total Amount:</span>
+                                    <span className="text-2xl font-bold text-blue-600">₱{parseFloat(selectedOrderForPayment.total_amount).toFixed(2)}</span>
+                                </div>
+                            </div>
+
+                            <div className="text-center mb-6">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-4">Scan QR Code to Pay</h3>
+                                <div className="bg-gray-100 rounded-lg p-6 inline-block">
+                                    <div className="w-64 h-64 bg-white flex items-center justify-center border-4 border-blue-600 rounded-lg">
+                                        <img 
+                                            src="/images/gcash-qr.jpg" 
+                                            alt="GCash QR Code" 
+                                            className="w-full h-full object-contain"
+                                            onError={(e) => {
+                                                e.target.style.display = 'none';
+                                                e.target.parentElement.innerHTML = '<div class="text-center"><svg class="w-24 h-24 mx-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg><p class="text-gray-600 mt-2">GCash QR Code</p></div>';
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-sm text-gray-600 mt-4">
+                                    Scan this QR code using your GCash app to complete the payment
+                                </p>
+                            </div>
+
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                                <h4 className="font-semibold text-blue-900 mb-2">Payment Instructions:</h4>
+                                <ol className="list-decimal list-inside text-sm text-blue-800 space-y-1">
+                                    <li>Open your GCash app</li>
+                                    <li>Tap "Scan QR"</li>
+                                    <li>Scan the QR code above</li>
+                                    <li>Verify the amount: ₱{parseFloat(selectedOrderForPayment.total_amount).toFixed(2)}</li>
+                                    <li>Complete the payment</li>
+                                    <li>Take a screenshot of the payment confirmation</li>
+                                    <li>Enter your GCash number and upload the screenshot below</li>
+                                </ol>
+                            </div>
+
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    GCash Number <span className="text-red-600">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="09XX XXX XXXX"
+                                    value={gcashNumber}
+                                    onChange={(e) => setGcashNumber(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Enter the GCash number you used for payment</p>
+                            </div>
+
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Upload Payment Screenshot <span className="text-red-600">*</span>
+                                </label>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => setGcashReceipt(e.target.files[0])}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Upload a clear screenshot of your GCash payment confirmation</p>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => {
+                                        setShowGCashQRModal(false);
+                                        setSelectedOrderForPayment(null);
+                                        setGcashNumber('');
+                                        setGcashReceipt(null);
+                                    }}
+                                    className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-medium py-3 rounded-lg"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        // Validate inputs
+                                        if (!gcashNumber.trim()) {
+                                            setNotification({
+                                                message: 'Please enter your GCash number',
+                                                type: 'error',
+                                                visible: true
+                                            });
+                                            return;
+                                        }
+                                        if (!gcashReceipt) {
+                                            setNotification({
+                                                message: 'Please upload your payment screenshot',
+                                                type: 'error',
+                                                visible: true
+                                            });
+                                            return;
+                                        }
+                                        
+                                        // Submit payment to backend
+                                        try {
+                                            const formData = new FormData();
+                                            formData.append('gcash_number', gcashNumber);
+                                            formData.append('gcash_receipt', gcashReceipt);
+                                            
+                                            const response = await axios.post(
+                                                window.route('orders.gcash-payment', selectedOrderForPayment.id),
+                                                formData,
+                                                {
+                                                    headers: {
+                                                        'Content-Type': 'multipart/form-data',
+                                                    }
+                                                }
+                                            );
+                                            
+                                            setNotification({
+                                                message: response.data.message || 'Payment submitted successfully! Waiting for verification.',
+                                                type: 'success',
+                                                visible: true
+                                            });
+                                            
+                                            // Close modals and reset form
+                                            setShowGCashQRModal(false);
+                                            setSelectedOrderForPayment(null);
+                                            setShowConfirmedOrdersModal(false);
+                                            setGcashNumber('');
+                                            setGcashReceipt(null);
+                                            
+                                            // Reload page after a delay to show updated order
+                                            setTimeout(() => {
+                                                window.location.reload();
+                                            }, 2000);
+                                        } catch (error) {
+                                            console.error('Payment submission error:', error);
+                                            setNotification({
+                                                message: error.response?.data?.message || 'Failed to submit payment. Please try again.',
+                                                type: 'error',
+                                                visible: true
+                                            });
+                                        }
+                                    }}
+                                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg"
+                                >
+                                    Submit Payment
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </AuthenticatedLayout>
     );
 }
