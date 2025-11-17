@@ -4,7 +4,7 @@ import axios from 'axios';
 import EmployeeLayout from '@/Layouts/EmployeeLayout';
 import Notification from '@/Components/Notification';
 
-export default function Orders({ auth, orders = [] }) {
+export default function Orders({ auth, orders = [], dbMeals = [] }) {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [hoveredDate, setHoveredDate] = useState(null);
     const [selectedDate, setSelectedDate] = useState(null);
@@ -14,6 +14,7 @@ export default function Orders({ auth, orders = [] }) {
     const [showStatusModal, setShowStatusModal] = useState(false);
     const [showSalesReportModal, setShowSalesReportModal] = useState(false);
     const [showSetLimitModal, setShowSetLimitModal] = useState(false);
+    const [showPlaceOrderModal, setShowPlaceOrderModal] = useState(false);
     const [salesReportFilter, setSalesReportFilter] = useState('all'); // 'all', 'completed', 'cancelled'
     const [fiestaPackageLimit, setFiestaPackageLimit] = useState(10);
     const [foodPaxLimit, setFoodPaxLimit] = useState(100);
@@ -22,6 +23,173 @@ export default function Orders({ auth, orders = [] }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
+    
+    // Track whether we're using database meals or hardcoded meals
+    const [useDatabaseMeals, setUseDatabaseMeals] = useState(true);
+    
+    // Log received meals from database for debugging
+    useEffect(() => {
+        console.log('Database meals received:', dbMeals);
+        if (!dbMeals || dbMeals.length === 0) {
+            console.log('No database meals found, using hardcoded meals');
+            setUseDatabaseMeals(false);
+        }
+    }, [dbMeals]);
+    
+    // Place Order form state
+    const [orderForm, setOrderForm] = useState({
+        customerName: '',
+        customerPhone: '',
+        customerEmail: '',
+        deliveryAddress: '',
+        deliveryDate: '',
+        packageType: 'Food Pax',
+        numberOfPax: 10,
+        notes: '',
+        paymentMethod: 'COD'
+    });
+    
+    // Menu selection state for place order
+    const [selectedFiestaSet, setSelectedFiestaSet] = useState(null);
+    const [selectedOrderDishes, setSelectedOrderDishes] = useState([]);
+    const [selectedOrderDesserts, setSelectedOrderDesserts] = useState([]);
+    const [singleMealQuantities, setSingleMealQuantities] = useState({});
+    
+    // GCash payment modal state for place order
+    const [showEmployeeGCashModal, setShowEmployeeGCashModal] = useState(false);
+    const [gcashNumber, setGcashNumber] = useState('');
+    const [gcashReceipt, setGcashReceipt] = useState(null);
+    
+    // Dish and dessert lists
+    const foodPaxDishes = [
+        { id: 101, name: 'Pork Adobo', description: 'Classic Filipino dish with pork cooked in soy sauce, vinegar, and spices' },
+        { id: 102, name: 'Chicken Tinola', description: 'Ginger-based soup with chicken, green papaya, and chili leaves' },
+        { id: 103, name: 'Beef Kaldereta', description: 'Rich beef stew with liver spread, bell peppers, and potatoes' },
+        { id: 104, name: 'Pork Sinigang', description: 'Tamarind-based sour soup with pork and vegetables' },
+        { id: 105, name: 'Chicken Afritada', description: 'Tomato-based stew with chicken, potatoes, and carrots' },
+        { id: 106, name: 'Beef Mechado', description: 'Filipino-style beef pot roast with tomato sauce' },
+        { id: 107, name: 'Pancit Bihon', description: 'Stir-fried rice noodles with meat and vegetables' },
+        { id: 108, name: 'Lumpiang Shanghai', description: 'Filipino-style spring rolls filled with ground pork' },
+        { id: 109, name: 'Pork Menudo', description: 'Diced pork stew with potatoes, carrots, and liver spread' },
+        { id: 110, name: 'Chicken Inasal', description: 'Grilled chicken marinated in vinegar, lime, and spices' },
+        { id: 111, name: 'Pinakbet', description: 'Mixed vegetables sautéed in shrimp paste' },
+        { id: 112, name: 'Nilaga', description: 'Clear beef soup with vegetables and potatoes' }
+    ];
+    
+    const fiestaDishes = [
+        { id: 201, name: 'Pork Adobo' },
+        { id: 202, name: 'Chicken Tinola' },
+        { id: 203, name: 'Beef Kaldereta' },
+        { id: 204, name: 'Pork Sinigang' },
+        { id: 205, name: 'Chicken Afritada' },
+        { id: 206, name: 'Beef Mechado' },
+        { id: 207, name: 'Pancit Bihon' },
+        { id: 208, name: 'Lumpiang Shanghai' },
+        { id: 209, name: 'Pork Menudo' },
+        { id: 210, name: 'Chicken Inasal' },
+        { id: 211, name: 'Pinakbet' },
+        { id: 212, name: 'Nilaga' },
+        { id: 213, name: 'Kare-Kare' },
+        { id: 214, name: 'Lechon Kawali' },
+        { id: 215, name: 'Bistek Tagalog' }
+    ];
+    
+    const filipinoDesserts = [
+        { id: 1, name: 'Leche Flan' },
+        { id: 2, name: 'Halo-Halo' },
+        { id: 3, name: 'Biko' },
+        { id: 4, name: 'Cassava Cake' },
+        { id: 5, name: 'Maja Blanca' },
+        { id: 6, name: 'Bibingka' },
+        { id: 7, name: 'Ube Halaya' },
+        { id: 8, name: 'Turon' }
+    ];
+    
+    // Hardcoded list of Filipino dishes for Single Meal (as fallback)
+    const hardcodedDishes = [
+        { id: 1, name: 'Adobo', description: 'Meat, seafood, or vegetables marinated in vinegar, soy sauce, and spices', price: 120 },
+        { id: 2, name: 'Sinigang', description: 'Sour soup with meat or seafood and vegetables', price: 130 },
+        { id: 3, name: 'Kare-kare', description: 'Stew with oxtail and vegetables in peanut sauce', price: 150 },
+        { id: 4, name: 'Lechon Kawali', description: 'Deep-fried crispy pork belly', price: 140 },
+        { id: 5, name: 'Bistek', description: 'Filipino-style beef steak with onions and calamansi', price: 135 },
+        { id: 6, name: 'Pinakbet', description: 'Mixed vegetables with shrimp paste', price: 110 },
+        { id: 7, name: 'Chicken Inasal', description: 'Grilled chicken marinated in annatto, lemongrass, and ginger', price: 125 },
+        { id: 8, name: 'Caldereta', description: 'Goat or beef stew with liver spread and bell peppers', price: 145 },
+        { id: 9, name: 'Dinuguan', description: 'Savory pork blood stew with meat and chili', price: 130 },
+        { id: 10, name: 'Pancit Canton', description: 'Stir-fried noodles with meat and vegetables', price: 115 },
+        { id: 11, name: 'Crispy Pata', description: 'Deep-fried pork leg with crispy skin', price: 180 },
+        { id: 12, name: 'Sisig', description: 'Sizzling dish of chopped pig parts and chicken liver', price: 135 },
+        { id: 13, name: 'Menudo', description: 'Pork and liver stew with potatoes, carrots and raisins', price: 125 },
+        { id: 14, name: 'Afritada', description: 'Chicken or pork stew with tomato sauce, potatoes, and bell peppers', price: 130 },
+        { id: 15, name: 'Bulalo', description: 'Beef shank soup with vegetables and bone marrow', price: 160 },
+        { id: 16, name: 'Laing', description: 'Dried taro leaves cooked in coconut milk with chili', price: 120 },
+        { id: 17, name: 'Bicol Express', description: 'Spicy pork stew with coconut milk, shrimp paste, and chilies', price: 135 },
+        { id: 18, name: 'Paksiw na Lechon', description: 'Leftover roast pork cooked in vinegar and spices', price: 140 }
+    ];
+    
+    // Use database meals when available, otherwise use hardcoded dishes (same as customer order page)
+    const singleMealOptions = useDatabaseMeals && dbMeals.length > 0 ? dbMeals : hardcodedDishes;
+    
+    // Helper functions for menu selection
+    const getMaxDishes = () => {
+        if (orderForm.packageType === 'Food Pax') return 2;
+        if (orderForm.packageType === 'Filipino Fiesta Package') {
+            return selectedFiestaSet === 'A' ? 5 : 4;
+        }
+        return 0;
+    };
+    
+    const getMaxDesserts = () => {
+        if (orderForm.packageType === 'Filipino Fiesta Package') {
+            return selectedFiestaSet === 'A' ? 2 : 1;
+        }
+        return 0;
+    };
+    
+    const toggleDishSelection = (dishId) => {
+        if (selectedOrderDishes.includes(dishId)) {
+            setSelectedOrderDishes(selectedOrderDishes.filter(id => id !== dishId));
+            return;
+        }
+        const maxDishes = getMaxDishes();
+        if (selectedOrderDishes.length >= maxDishes) return;
+        setSelectedOrderDishes([...selectedOrderDishes, dishId]);
+    };
+    
+    const toggleDessertSelection = (dessertId) => {
+        if (selectedOrderDesserts.includes(dessertId)) {
+            setSelectedOrderDesserts(selectedOrderDesserts.filter(id => id !== dessertId));
+            return;
+        }
+        const maxDesserts = getMaxDesserts();
+        if (selectedOrderDesserts.length >= maxDesserts) return;
+        setSelectedOrderDesserts([...selectedOrderDesserts, dessertId]);
+    };
+    
+    const updateSingleMealQuantity = (mealId, quantity) => {
+        if (quantity <= 0) {
+            const newQuantities = {...singleMealQuantities};
+            delete newQuantities[mealId];
+            setSingleMealQuantities(newQuantities);
+        } else {
+            setSingleMealQuantities({...singleMealQuantities, [mealId]: quantity});
+        }
+    };
+    
+    const calculateTotalAmount = () => {
+        if (orderForm.packageType === 'Food Pax') {
+            return orderForm.numberOfPax * 150;
+        } else if (orderForm.packageType === 'Filipino Fiesta Package') {
+            const setPrices = { 'A': 14999, 'B': 9999, 'C': 7999 };
+            return setPrices[selectedFiestaSet] || 0;
+        } else if (orderForm.packageType === 'Single Meal') {
+            return Object.entries(singleMealQuantities).reduce((total, [mealId, qty]) => {
+                const meal = singleMealOptions.find(m => m.id === parseInt(mealId));
+                return total + (meal ? meal.price * qty : 0);
+            }, 0);
+        }
+        return 0;
+    };
     
     // Load order limits when component mounts
     useEffect(() => {
@@ -282,6 +450,15 @@ export default function Orders({ auth, orders = [] }) {
                                 <h1 className="text-2xl font-semibold text-gray-800">Order Management</h1>
                                 <div className="flex space-x-2 items-center">
                                     <button 
+                                        onClick={() => setShowPlaceOrderModal(true)}
+                                        className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-medium flex items-center space-x-2"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                        </svg>
+                                        <span>Place Order</span>
+                                    </button>
+                                    <button 
                                         onClick={() => setShowSetLimitModal(true)}
                                         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium flex items-center space-x-2"
                                     >
@@ -372,25 +549,6 @@ export default function Orders({ auth, orders = [] }) {
                                                 </div>
                                             </div>
                                         </div>
-                                        
-                                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-5 rounded-lg border-2 border-purple-200 shadow-md">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <p className="text-sm text-purple-600 font-semibold uppercase tracking-wide">Monthly Revenue</p>
-                                                    <p className="text-4xl font-bold text-purple-900 mt-2">
-                                                        ₱{totalMonthlyRevenue.toFixed(2)}
-                                                    </p>
-                                                    <p className="text-xs text-purple-600 mt-1">
-                                                        Total earnings
-                                                    </p>
-                                                </div>
-                                                <div className="bg-purple-200 p-4 rounded-full">
-                                                    <svg className="w-10 h-10 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                    </svg>
-                                                </div>
-                                            </div>
-                                        </div>
                                     </div>
                                 );
                             })()}
@@ -429,11 +587,18 @@ export default function Orders({ auth, orders = [] }) {
                                                         <div className="text-xs bg-red-100 p-1 mb-1 rounded">
                                                             <span className="font-bold">{day.orders.length} order{day.orders.length !== 1 ? 's' : ''}</span>
                                                         </div>
-                                                        {/* Display customer names */}
+                                                        {/* Display customer names with pax */}
                                                         <div className="text-xs space-y-0.5 mt-1">
                                                             {day.orders.slice(0, 3).map((order, idx) => (
                                                                 <div key={order.id} className="truncate text-gray-700">
-                                                                    • {order.customer_name}
+                                                                    • {order.customer_name} 
+                                                                    <span className="text-blue-600 font-semibold ml-1">
+                                                                        ({order.package_set 
+                                                                            ? (order.package_set === 'A' ? '15-30' : 
+                                                                               order.package_set === 'B' ? '10-20' : 
+                                                                               order.package_set === 'C' ? '10-15' : order.number_of_pax)
+                                                                            : order.number_of_pax} pax)
+                                                                    </span>
                                                                 </div>
                                                             ))}
                                                             {day.orders.length > 3 && (
@@ -558,7 +723,13 @@ export default function Orders({ auth, orders = [] }) {
                                                                 {order.package_name}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                                {order.number_of_pax}
+                                                                {order.package_set ? (
+                                                                    <span>
+                                                                        {order.package_set === 'A' ? '15-30' : 
+                                                                         order.package_set === 'B' ? '10-20' : 
+                                                                         order.package_set === 'C' ? '10-15' : order.number_of_pax}
+                                                                    </span>
+                                                                ) : order.number_of_pax}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                                 ₱{parseFloat(order.total_amount).toFixed(2)}
@@ -959,13 +1130,13 @@ export default function Orders({ auth, orders = [] }) {
                             </div>
 
                             {/* Filter Buttons */}
-                            <div className="px-6 py-4 bg-gray-100 border-b">
+                            <div className="px-4 py-2 bg-gray-100 border-b">
                                 <div className="flex items-center justify-between">
-                                    <p className="text-sm text-gray-600 font-medium">Filter by Status:</p>
+                                    <p className="text-xs text-gray-600 font-medium">Filter by Status:</p>
                                     <div className="flex space-x-2">
                                         <button
                                             onClick={() => setSalesReportFilter('all')}
-                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                            className={`px-3 py-1 text-sm rounded-md font-medium transition-colors ${
                                                 salesReportFilter === 'all'
                                                     ? 'bg-blue-600 text-white'
                                                     : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
@@ -975,7 +1146,7 @@ export default function Orders({ auth, orders = [] }) {
                                         </button>
                                         <button
                                             onClick={() => setSalesReportFilter('completed')}
-                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                            className={`px-3 py-1 text-sm rounded-md font-medium transition-colors ${
                                                 salesReportFilter === 'completed'
                                                     ? 'bg-green-600 text-white'
                                                     : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
@@ -985,7 +1156,7 @@ export default function Orders({ auth, orders = [] }) {
                                         </button>
                                         <button
                                             onClick={() => setSalesReportFilter('cancelled')}
-                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                            className={`px-3 py-1 text-sm rounded-md font-medium transition-colors ${
                                                 salesReportFilter === 'cancelled'
                                                     ? 'bg-red-600 text-white'
                                                     : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
@@ -998,43 +1169,43 @@ export default function Orders({ auth, orders = [] }) {
                             </div>
 
                             {/* Summary Cards */}
-                            <div className="px-6 py-4 bg-gray-50 grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="bg-white p-4 rounded-lg border-2 border-blue-200 shadow">
+                            <div className="px-4 py-2 bg-gray-50 grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div className="bg-white p-2 rounded-lg border border-blue-200 shadow-sm">
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <p className="text-sm text-blue-600 font-semibold uppercase">Total Orders</p>
-                                            <p className="text-3xl font-bold text-blue-900 mt-1">{totalOrders}</p>
+                                            <p className="text-xs text-blue-600 font-semibold uppercase">Total Orders</p>
+                                            <p className="text-xl font-bold text-blue-900">{totalOrders}</p>
                                         </div>
-                                        <div className="bg-blue-100 p-3 rounded-full">
-                                            <svg className="w-8 h-8 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <div className="bg-blue-100 p-2 rounded-full">
+                                            <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                                             </svg>
                                         </div>
                                     </div>
                                 </div>
                                 
-                                <div className="bg-white p-4 rounded-lg border-2 border-green-200 shadow">
+                                <div className="bg-white p-2 rounded-lg border border-green-200 shadow-sm">
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <p className="text-sm text-green-600 font-semibold uppercase">Total Pax</p>
-                                            <p className="text-3xl font-bold text-green-900 mt-1">{totalPax}</p>
+                                            <p className="text-xs text-green-600 font-semibold uppercase">Total Pax</p>
+                                            <p className="text-xl font-bold text-green-900">{totalPax}</p>
                                         </div>
-                                        <div className="bg-green-100 p-3 rounded-full">
-                                            <svg className="w-8 h-8 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <div className="bg-green-100 p-2 rounded-full">
+                                            <svg className="w-5 h-5 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                                             </svg>
                                         </div>
                                     </div>
                                 </div>
                                 
-                                <div className="bg-white p-4 rounded-lg border-2 border-purple-200 shadow">
+                                <div className="bg-white p-2 rounded-lg border border-purple-200 shadow-sm">
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <p className="text-sm text-purple-600 font-semibold uppercase">Total Revenue</p>
-                                            <p className="text-3xl font-bold text-purple-900 mt-1">₱{totalRevenue.toFixed(2)}</p>
+                                            <p className="text-xs text-purple-600 font-semibold uppercase">Total Revenue</p>
+                                            <p className="text-xl font-bold text-purple-900">₱{totalRevenue.toFixed(2)}</p>
                                         </div>
-                                        <div className="bg-purple-100 p-3 rounded-full">
-                                            <svg className="w-8 h-8 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <div className="bg-purple-100 p-2 rounded-full">
+                                            <svg className="w-5 h-5 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
                                         </div>
@@ -1043,14 +1214,14 @@ export default function Orders({ auth, orders = [] }) {
                             </div>
 
                             {/* Best Seller Section */}
-                            <div className="px-6 py-4 bg-white border-b">
-                                <h3 className="text-lg font-semibold mb-4 text-gray-800 flex items-center">
+                            <div className="px-4 py-2 bg-white border-b">
+                                <h3 className="text-sm font-semibold mb-2 text-gray-800 flex items-center">
                                     <svg className="w-6 h-6 mr-2 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
                                         <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                                     </svg>
                                     Best Sellers
                                 </h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                                     {(() => {
                                         // Calculate best sellers for completed orders only
                                         const completedOrders = monthlyOrders.filter(order => order.status === 'completed');
@@ -1093,12 +1264,12 @@ export default function Orders({ auth, orders = [] }) {
                                         return (
                                             <>
                                                 {/* Filipino Fiesta Package */}
-                                                <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-lg border border-orange-200">
-                                                    <p className="text-sm font-semibold text-orange-700 uppercase mb-2">Filipino Fiesta Package</p>
+                                                <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-2 rounded-lg border border-orange-200">
+                                                    <p className="text-xs font-semibold text-orange-700 uppercase mb-1">Filipino Fiesta Package</p>
                                                     {topFiesta ? (
                                                         <>
-                                                            <p className="text-2xl font-bold text-orange-900">Set {topFiesta[0]}</p>
-                                                            <p className="text-sm text-orange-600 mt-1">{topFiesta[1]} order{topFiesta[1] > 1 ? 's' : ''}</p>
+                                                            <p className="text-xl font-bold text-orange-900">Set {topFiesta[0]}</p>
+                                                            <p className="text-xs text-orange-600 mt-1">{topFiesta[1]} order{topFiesta[1] > 1 ? 's' : ''}</p>
                                                         </>
                                                     ) : (
                                                         <p className="text-sm text-gray-500">No orders yet</p>
@@ -1106,12 +1277,12 @@ export default function Orders({ auth, orders = [] }) {
                                                 </div>
                                                 
                                                 {/* Single Meal */}
-                                                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
-                                                    <p className="text-sm font-semibold text-blue-700 uppercase mb-2">Single Meal</p>
+                                                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-2 rounded-lg border border-blue-200">
+                                                    <p className="text-xs font-semibold text-blue-700 uppercase mb-1">Single Meal</p>
                                                     {topSingleMeal ? (
                                                         <>
-                                                            <p className="text-lg font-bold text-blue-900">{topSingleMeal[0]}</p>
-                                                            <p className="text-sm text-blue-600 mt-1">{topSingleMeal[1]} order{topSingleMeal[1] > 1 ? 's' : ''}</p>
+                                                            <p className="text-base font-bold text-blue-900">{topSingleMeal[0]}</p>
+                                                            <p className="text-xs text-blue-600 mt-1">{topSingleMeal[1]} order{topSingleMeal[1] > 1 ? 's' : ''}</p>
                                                         </>
                                                     ) : (
                                                         <p className="text-sm text-gray-500">No orders yet</p>
@@ -1119,12 +1290,12 @@ export default function Orders({ auth, orders = [] }) {
                                                 </div>
                                                 
                                                 {/* Food Pax */}
-                                                <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border border-green-200">
-                                                    <p className="text-sm font-semibold text-green-700 uppercase mb-2">Food Pax - Most Popular Dish</p>
+                                                <div className="bg-gradient-to-br from-green-50 to-green-100 p-2 rounded-lg border border-green-200">
+                                                    <p className="text-xs font-semibold text-green-700 uppercase mb-1">Food Pax - Most Popular Dish</p>
                                                     {topDish ? (
                                                         <>
-                                                            <p className="text-lg font-bold text-green-900">{topDish[0]}</p>
-                                                            <p className="text-sm text-green-600 mt-1">{topDish[1]} order{topDish[1] > 1 ? 's' : ''}</p>
+                                                            <p className="text-base font-bold text-green-900">{topDish[0]}</p>
+                                                            <p className="text-xs text-green-600 mt-1">{topDish[1]} order{topDish[1] > 1 ? 's' : ''}</p>
                                                         </>
                                                     ) : (
                                                         <p className="text-sm text-gray-500">No orders yet</p>
@@ -1327,6 +1498,676 @@ export default function Orders({ auth, orders = [] }) {
                             >
                                 Save Limits
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Place Order Modal */}
+            {showPlaceOrderModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
+                            <h2 className="text-2xl font-bold text-gray-800">Place Walk-in Order</h2>
+                            <button
+                                onClick={() => setShowPlaceOrderModal(false)}
+                                className="text-gray-500 hover:text-gray-700"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            {/* Customer Information */}
+                            <div>
+                                <h3 className="text-lg font-semibold mb-3 text-gray-700">Customer Information</h3>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name *</label>
+                                        <input
+                                            type="text"
+                                            value={orderForm.customerName}
+                                            onChange={(e) => setOrderForm({...orderForm, customerName: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                            placeholder="Enter customer name"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
+                                            <input
+                                                type="tel"
+                                                value={orderForm.customerPhone}
+                                                onChange={(e) => setOrderForm({...orderForm, customerPhone: e.target.value})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                                placeholder="09XX XXX XXXX"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Email (Optional)</label>
+                                            <input
+                                                type="email"
+                                                value={orderForm.customerEmail}
+                                                onChange={(e) => setOrderForm({...orderForm, customerEmail: e.target.value})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                                placeholder="email@example.com"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Order Details */}
+                            <div>
+                                <h3 className="text-lg font-semibold mb-3 text-gray-700">Order Details</h3>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Package Type *</label>
+                                        <select
+                                            value={orderForm.packageType}
+                                            onChange={(e) => {
+                                                setOrderForm({...orderForm, packageType: e.target.value});
+                                                setSelectedFiestaSet(null);
+                                                setSelectedOrderDishes([]);
+                                                setSelectedOrderDesserts([]);
+                                                setSingleMealQuantities({});
+                                            }}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                        >
+                                            <option value="Food Pax">Food Pax</option>
+                                            <option value="Filipino Fiesta Package">Filipino Fiesta Package</option>
+                                            <option value="Single Meal">Single Meal</option>
+                                        </select>
+                                    </div>
+                                    
+                                    {/* Filipino Fiesta Package - Set Selection */}
+                                    {orderForm.packageType === 'Filipino Fiesta Package' && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Select Fiesta Set *</label>
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedFiestaSet('A');
+                                                        setOrderForm({...orderForm, numberOfPax: 20});
+                                                        setSelectedOrderDishes([]);
+                                                        setSelectedOrderDesserts([]);
+                                                    }}
+                                                    className={`p-3 border-2 rounded-lg text-center ${selectedFiestaSet === 'A' ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                                                >
+                                                    <div className="font-bold text-lg">Set A</div>
+                                                    <div className="text-sm text-gray-600">₱14,999</div>
+                                                    <div className="text-xs text-gray-500 mt-1">15-30 pax</div>
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedFiestaSet('B');
+                                                        setOrderForm({...orderForm, numberOfPax: 15});
+                                                        setSelectedOrderDishes([]);
+                                                        setSelectedOrderDesserts([]);
+                                                    }}
+                                                    className={`p-3 border-2 rounded-lg text-center ${selectedFiestaSet === 'B' ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                                                >
+                                                    <div className="font-bold text-lg">Set B</div>
+                                                    <div className="text-sm text-gray-600">₱9,999</div>
+                                                    <div className="text-xs text-gray-500 mt-1">10-20 pax</div>
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedFiestaSet('C');
+                                                        setOrderForm({...orderForm, numberOfPax: 12});
+                                                        setSelectedOrderDishes([]);
+                                                        setSelectedOrderDesserts([]);
+                                                    }}
+                                                    className={`p-3 border-2 rounded-lg text-center ${selectedFiestaSet === 'C' ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                                                >
+                                                    <div className="font-bold text-lg">Set C</div>
+                                                    <div className="text-sm text-gray-600">₱7,999</div>
+                                                    <div className="text-xs text-gray-500 mt-1">10-15 pax</div>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Dish Selection for Food Pax and Fiesta */}
+                                    {(orderForm.packageType === 'Food Pax' || (orderForm.packageType === 'Filipino Fiesta Package' && selectedFiestaSet)) && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Select Dishes ({selectedOrderDishes.length}/{getMaxDishes()}) *
+                                            </label>
+                                            <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-200 rounded p-2">
+                                                {(orderForm.packageType === 'Food Pax' ? foodPaxDishes : fiestaDishes).map(dish => (
+                                                    <button
+                                                        key={dish.id}
+                                                        onClick={() => toggleDishSelection(dish.id)}
+                                                        className={`p-2 text-left text-sm border rounded ${
+                                                            selectedOrderDishes.includes(dish.id) 
+                                                                ? 'border-red-500 bg-red-50' 
+                                                                : 'border-gray-300 hover:border-red-300'
+                                                        }`}
+                                                    >
+                                                        {dish.name}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Dessert Selection for Fiesta */}
+                                    {orderForm.packageType === 'Filipino Fiesta Package' && selectedFiestaSet && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Select Desserts ({selectedOrderDesserts.length}/{getMaxDesserts()}) *
+                                            </label>
+                                            <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto border border-gray-200 rounded p-2">
+                                                {filipinoDesserts.map(dessert => (
+                                                    <button
+                                                        key={dessert.id}
+                                                        onClick={() => toggleDessertSelection(dessert.id)}
+                                                        className={`p-2 text-left text-sm border rounded ${
+                                                            selectedOrderDesserts.includes(dessert.id) 
+                                                                ? 'border-red-500 bg-red-50' 
+                                                                : 'border-gray-300 hover:border-red-300'
+                                                        }`}
+                                                    >
+                                                        {dessert.name}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Single Meal Selection */}
+                                    {orderForm.packageType === 'Single Meal' && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Select Meals & Quantities *</label>
+                                            <p className="text-xs text-gray-600 mb-2">Your meal includes steamed rice. Select dishes to accompany the rice:</p>
+                                            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto border border-gray-200 rounded p-2">
+                                                {singleMealOptions.map(meal => {
+                                                    const isSelected = singleMealQuantities[meal.id] !== undefined && singleMealQuantities[meal.id] > 0;
+                                                    const isAvailable = !useDatabaseMeals || meal.is_available !== false;
+                                                    
+                                                    return (
+                                                        <div 
+                                                            key={meal.id} 
+                                                            className={`border rounded-lg overflow-hidden ${
+                                                                isSelected ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                                                            } ${
+                                                                !isAvailable ? 'opacity-50 cursor-not-allowed' : ''
+                                                            }`}
+                                                        >
+                                                            {/* Dish Image */}
+                                                            {useDatabaseMeals && meal.image && (
+                                                                <div className="w-full h-24 bg-gray-100">
+                                                                    <img 
+                                                                        src={`/storage/${meal.image}`}
+                                                                        alt={meal.name}
+                                                                        className="w-full h-full object-cover"
+                                                                        onError={(e) => {
+                                                                            e.target.style.display = 'none';
+                                                                            e.target.parentElement.innerHTML = '<div class="w-full h-full flex items-center justify-center text-gray-400"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></div>';
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            )}
+                                                            
+                                                            <div className="p-3">
+                                                                <div className="mb-2">
+                                                                    <div className="font-medium text-sm">
+                                                                        {meal.name}
+                                                                        {!isAvailable && (
+                                                                            <span className="ml-1 text-xs text-red-600">(Unavailable)</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="text-xs text-gray-500 line-clamp-1">{meal.description}</div>
+                                                                    <div className="text-sm font-semibold text-red-600 mt-1">
+                                                                        ₱{useDatabaseMeals && meal.price ? parseFloat(meal.price).toFixed(2) : meal.price.toFixed(2)}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="text-xs text-gray-600">Qty:</span>
+                                                                    <div className="flex items-center space-x-2">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => isAvailable && updateSingleMealQuantity(meal.id, (singleMealQuantities[meal.id] || 0) - 1)}
+                                                                            className="w-6 h-6 bg-gray-200 rounded hover:bg-gray-300 flex items-center justify-center disabled:opacity-50"
+                                                                            disabled={!singleMealQuantities[meal.id] || !isAvailable}
+                                                                        >
+                                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                                                                            </svg>
+                                                                        </button>
+                                                                        <span className="w-6 text-center text-sm font-semibold">{singleMealQuantities[meal.id] || 0}</span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => isAvailable && updateSingleMealQuantity(meal.id, (singleMealQuantities[meal.id] || 0) + 1)}
+                                                                            className="w-6 h-6 bg-red-600 text-white rounded hover:bg-red-700 flex items-center justify-center disabled:opacity-50"
+                                                                            disabled={!isAvailable}
+                                                                        >
+                                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                                                            </svg>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Number of Pax (only for Food Pax) */}
+                                    {orderForm.packageType === 'Food Pax' && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Number of Pax *</label>
+                                            <input
+                                                type="number"
+                                                min="10"
+                                                value={orderForm.numberOfPax}
+                                                onChange={(e) => setOrderForm({...orderForm, numberOfPax: parseInt(e.target.value) || 10})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                            />
+                                        </div>
+                                    )}
+                                    
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Date *</label>
+                                        <input
+                                            type="date"
+                                            value={orderForm.deliveryDate}
+                                            onChange={(e) => setOrderForm({...orderForm, deliveryDate: e.target.value})}
+                                            min={new Date().toISOString().split('T')[0]}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Address *</label>
+                                        <textarea
+                                            value={orderForm.deliveryAddress}
+                                            onChange={(e) => setOrderForm({...orderForm, deliveryAddress: e.target.value})}
+                                            rows="2"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                            placeholder="Enter delivery address"
+                                        ></textarea>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method *</label>
+                                        <select
+                                            value={orderForm.paymentMethod}
+                                            onChange={(e) => setOrderForm({...orderForm, paymentMethod: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                        >
+                                            <option value="COD">Cash on Delivery</option>
+                                            <option value="Cash">Cash (Paid)</option>
+                                            <option value="GCash">GCash</option>
+                                        </select>
+                                    </div>
+                                    
+                                    {/* GCash Payment Button */}
+                                    {orderForm.paymentMethod === 'GCash' && (
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                            <div className="flex items-start space-x-3">
+                                                <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                <div className="flex-1">
+                                                    <p className="text-sm text-blue-800 font-medium mb-2">GCash Payment Selected</p>
+                                                    <p className="text-xs text-blue-700 mb-3">Customer will pay via GCash. Please help them scan the QR code and upload the receipt.</p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowEmployeeGCashModal(true)}
+                                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                                                    >
+                                                        Process GCash Payment
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Special Notes (Optional)</label>
+                                        <textarea
+                                            value={orderForm.notes}
+                                            onChange={(e) => setOrderForm({...orderForm, notes: e.target.value})}
+                                            rows="2"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                            placeholder="Any special requests or notes..."
+                                        ></textarea>
+                                    </div>
+                                    
+                                    {/* Total Amount Display */}
+                                    <div className="bg-gray-50 p-3 rounded-lg">
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-semibold text-gray-700">Total Amount:</span>
+                                            <span className="text-xl font-bold text-red-600">₱{calculateTotalAmount().toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="border-t px-6 py-4 flex justify-end space-x-3 bg-gray-50">
+                            <button
+                                onClick={() => {
+                                    setShowPlaceOrderModal(false);
+                                    setOrderForm({
+                                        customerName: '',
+                                        customerPhone: '',
+                                        customerEmail: '',
+                                        deliveryAddress: '',
+                                        deliveryDate: '',
+                                        packageType: 'Food Pax',
+                                        numberOfPax: 10,
+                                        notes: '',
+                                        paymentMethod: 'COD'
+                                    });
+                                }}
+                                className="px-6 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors font-medium"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    // Validate required fields
+                                    if (!orderForm.customerName || !orderForm.customerPhone || !orderForm.deliveryDate || !orderForm.deliveryAddress) {
+                                        setErrorMessage('Please fill in all required fields');
+                                        return;
+                                    }
+                                    
+                                    // Validate package-specific requirements
+                                    if (orderForm.packageType === 'Food Pax' && selectedOrderDishes.length !== 2) {
+                                        setErrorMessage('Please select exactly 2 dishes for Food Pax');
+                                        return;
+                                    }
+                                    
+                                    if (orderForm.packageType === 'Filipino Fiesta Package') {
+                                        if (!selectedFiestaSet) {
+                                            setErrorMessage('Please select a Fiesta set');
+                                            return;
+                                        }
+                                        if (selectedOrderDishes.length !== getMaxDishes()) {
+                                            setErrorMessage(`Please select ${getMaxDishes()} dishes`);
+                                            return;
+                                        }
+                                        if (selectedOrderDesserts.length !== getMaxDesserts()) {
+                                            setErrorMessage(`Please select ${getMaxDesserts()} dessert(s)`);
+                                            return;
+                                        }
+                                    }
+                                    
+                                    if (orderForm.packageType === 'Single Meal' && Object.keys(singleMealQuantities).length === 0) {
+                                        setErrorMessage('Please select at least one meal');
+                                        return;
+                                    }
+
+                                    // Prepare dishes array
+                                    const dishList = orderForm.packageType === 'Food Pax' || orderForm.packageType === 'Filipino Fiesta Package'
+                                        ? [...selectedOrderDishes.map(id => {
+                                            const dish = (orderForm.packageType === 'Food Pax' ? foodPaxDishes : fiestaDishes).find(d => d.id === id);
+                                            return dish ? dish.name : '';
+                                        }), ...selectedOrderDesserts.map(id => {
+                                            const dessert = filipinoDesserts.find(d => d.id === id);
+                                            return dessert ? dessert.name : '';
+                                        })]
+                                        : Object.entries(singleMealQuantities).map(([id, qty]) => {
+                                            const meal = singleMealOptions.find(m => m.id === parseInt(id));
+                                            return meal ? `${meal.name} (${qty})` : '';
+                                        });
+
+                                    // Prepare package ID based on type
+                                    let packageId = 1;
+                                    if (orderForm.packageType === 'Filipino Fiesta Package') {
+                                        packageId = selectedFiestaSet === 'A' ? 2 : selectedFiestaSet === 'B' ? 3 : 4;
+                                    } else if (orderForm.packageType === 'Single Meal') {
+                                        packageId = 5;
+                                    }
+                                    
+                                    // Prepare main item for fiesta package
+                                    const mainItem = selectedFiestaSet === 'A' ? 'Whole Lechon' : 
+                                                    selectedFiestaSet === 'B' ? 'Lechon Belly' : 
+                                                    selectedFiestaSet === 'C' ? 'Crispy Pata' : '';
+                                    
+                                    // Prepare data in the format expected by backend
+                                    const orderData = {
+                                        package: {
+                                            id: packageId,
+                                            name: orderForm.packageType,
+                                            price: calculateTotalAmount().toString()
+                                        },
+                                        dishes: orderForm.packageType === 'Food Pax' || orderForm.packageType === 'Filipino Fiesta Package'
+                                            ? selectedOrderDishes.map(id => {
+                                                const dish = (orderForm.packageType === 'Food Pax' ? foodPaxDishes : fiestaDishes).find(d => d.id === id);
+                                                return dish ? dish.name : '';
+                                            })
+                                            : Object.entries(singleMealQuantities).map(([id, qty]) => {
+                                                const meal = singleMealOptions.find(m => m.id === parseInt(id));
+                                                return meal ? `${meal.name} (${qty})` : '';
+                                            }),
+                                        customerInfo: {
+                                            name: orderForm.customerName,
+                                            email: orderForm.customerEmail || 'walkin@restaurant.com',
+                                            phone: orderForm.customerPhone,
+                                            address: orderForm.deliveryAddress,
+                                            note: orderForm.notes,
+                                            deliveryDate: orderForm.deliveryDate,
+                                            deliveryTime: '12:00',
+                                            numberOfPax: orderForm.numberOfPax,
+                                            paymentMethod: orderForm.paymentMethod,
+                                            gcashNumber: orderForm.paymentMethod === 'GCash' ? gcashNumber : undefined,
+                                            gcashReceipt: orderForm.paymentMethod === 'GCash' ? gcashReceipt : undefined
+                                        }
+                                    };
+                                    
+                                    // Add Fiesta-specific fields
+                                    if (orderForm.packageType === 'Filipino Fiesta Package') {
+                                        orderData.set = selectedFiestaSet;
+                                        orderData.mainItem = mainItem;
+                                        orderData.desserts = selectedOrderDesserts.map(id => {
+                                            const dessert = filipinoDesserts.find(d => d.id === id);
+                                            return dessert ? dessert.name : '';
+                                        });
+                                    }
+
+                                    // Submit order via axios
+                                    // If GCash payment with receipt, use FormData
+                                    let submitData;
+                                    let headers = {};
+                                    
+                                    if (orderForm.paymentMethod === 'GCash' && gcashReceipt) {
+                                        submitData = new FormData();
+                                        submitData.append('package[id]', orderData.package.id);
+                                        submitData.append('package[name]', orderData.package.name);
+                                        submitData.append('package[price]', orderData.package.price);
+                                        
+                                        orderData.dishes.forEach((dish, index) => {
+                                            submitData.append(`dishes[${index}]`, dish);
+                                        });
+                                        
+                                        submitData.append('customerInfo[name]', orderData.customerInfo.name);
+                                        submitData.append('customerInfo[email]', orderData.customerInfo.email);
+                                        submitData.append('customerInfo[phone]', orderData.customerInfo.phone);
+                                        submitData.append('customerInfo[address]', orderData.customerInfo.address);
+                                        submitData.append('customerInfo[note]', orderData.customerInfo.note);
+                                        submitData.append('customerInfo[deliveryDate]', orderData.customerInfo.deliveryDate);
+                                        submitData.append('customerInfo[deliveryTime]', orderData.customerInfo.deliveryTime);
+                                        submitData.append('customerInfo[numberOfPax]', orderData.customerInfo.numberOfPax);
+                                        submitData.append('customerInfo[paymentMethod]', orderData.customerInfo.paymentMethod);
+                                        submitData.append('customerInfo[gcashNumber]', gcashNumber);
+                                        submitData.append('customerInfo[gcashReceipt]', gcashReceipt);
+                                        
+                                        if (orderForm.packageType === 'Filipino Fiesta Package') {
+                                            submitData.append('set', orderData.set);
+                                            submitData.append('mainItem', orderData.mainItem);
+                                            orderData.desserts.forEach((dessert, index) => {
+                                                submitData.append(`desserts[${index}]`, dessert);
+                                            });
+                                        }
+                                        
+                                        headers['Content-Type'] = 'multipart/form-data';
+                                    } else {
+                                        submitData = orderData;
+                                    }
+                                    
+                                    axios.post(window.route('orders.store'), submitData, { headers })
+                                    .then(response => {
+                                        setSuccessMessage('Walk-in order placed successfully!');
+                                        setShowPlaceOrderModal(false);
+                                        // Reset form
+                                        setOrderForm({
+                                            customerName: '',
+                                            customerPhone: '',
+                                            customerEmail: '',
+                                            deliveryAddress: '',
+                                            deliveryDate: '',
+                                            packageType: 'Food Pax',
+                                            numberOfPax: 10,
+                                            notes: '',
+                                            paymentMethod: 'COD'
+                                        });
+                                        setSelectedFiestaSet(null);
+                                        setSelectedOrderDishes([]);
+                                        setSelectedOrderDesserts([]);
+                                        setSingleMealQuantities({});
+                                        setGcashNumber('');
+                                        setGcashReceipt(null);
+                                        // Reload page to show new order
+                                        window.location.reload();
+                                    })
+                                    .catch(error => {
+                                        console.error('Error placing order:', error);
+                                        setErrorMessage(error.response?.data?.message || 'Failed to place order. Please try again.');
+                                    });
+                                }}
+                                className="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors font-medium"
+                            >
+                                Place Order
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* GCash Payment Modal for Employee Place Order */}
+            {showEmployeeGCashModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+                    <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
+                            <h2 className="text-2xl font-bold text-gray-800">GCash Payment</h2>
+                            <button
+                                onClick={() => {
+                                    setShowEmployeeGCashModal(false);
+                                    setGcashNumber('');
+                                    setGcashReceipt(null);
+                                }}
+                                className="text-gray-500 hover:text-gray-700"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="p-6">
+                            <div className="border-t border-b py-4 mb-6">
+                                <div className="flex justify-between text-lg">
+                                    <span className="text-gray-700 font-medium">Total Amount:</span>
+                                    <span className="text-2xl font-bold text-blue-600">₱{calculateTotalAmount().toFixed(2)}</span>
+                                </div>
+                            </div>
+
+                            <div className="text-center mb-6">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-4">Scan QR Code to Pay</h3>
+                                <div className="bg-gray-100 rounded-lg p-6 inline-block">
+                                    <div className="w-64 h-64 bg-white flex items-center justify-center border-4 border-blue-600 rounded-lg">
+                                        <img 
+                                            src="/images/gcash-qr.jpg" 
+                                            alt="GCash QR Code" 
+                                            className="w-full h-full object-contain"
+                                            onError={(e) => {
+                                                e.target.style.display = 'none';
+                                                e.target.parentElement.innerHTML = '<div class="text-center"><svg class="w-24 h-24 mx-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg><p class="text-gray-600 mt-2">GCash QR Code</p></div>';
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-sm text-gray-600 mt-4">
+                                    Help customer scan this QR code using their GCash app
+                                </p>
+                            </div>
+
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                                <h4 className="font-semibold text-blue-900 mb-2">Payment Instructions:</h4>
+                                <ol className="list-decimal list-inside text-sm text-blue-800 space-y-1">
+                                    <li>Customer opens their GCash app</li>
+                                    <li>Tap "Scan QR"</li>
+                                    <li>Scan the QR code above</li>
+                                    <li>Verify the amount: ₱{calculateTotalAmount().toFixed(2)}</li>
+                                    <li>Complete the payment</li>
+                                    <li>Take a screenshot of the payment confirmation</li>
+                                    <li>Enter customer's GCash number and upload the screenshot below</li>
+                                </ol>
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Customer's GCash Number <span className="text-red-600">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="09XX XXX XXXX"
+                                    value={gcashNumber}
+                                    onChange={(e) => setGcashNumber(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Enter the customer's GCash number used for payment</p>
+                            </div>
+
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Upload Payment Screenshot <span className="text-red-600">*</span>
+                                </label>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => setGcashReceipt(e.target.files[0])}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Upload a clear screenshot of the GCash payment confirmation</p>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => {
+                                        setShowEmployeeGCashModal(false);
+                                        setGcashNumber('');
+                                        setGcashReceipt(null);
+                                    }}
+                                    className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-medium py-3 rounded-lg"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (!gcashNumber.trim()) {
+                                            setErrorMessage('Please enter customer\'s GCash number');
+                                            return;
+                                        }
+                                        if (!gcashReceipt) {
+                                            setErrorMessage('Please upload payment screenshot');
+                                            return;
+                                        }
+                                        
+                                        setShowEmployeeGCashModal(false);
+                                        setSuccessMessage('GCash payment details saved! You can now place the order.');
+                                    }}
+                                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg"
+                                >
+                                    Confirm Payment
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

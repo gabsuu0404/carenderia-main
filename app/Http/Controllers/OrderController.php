@@ -445,46 +445,86 @@ class OrderController extends Controller
      */
     public function submitGCashPayment($id, Request $request)
     {
-        // Find the order and make sure it belongs to the authenticated user
-        $order = Order::where('id', $id)
-            ->where('user_id', Auth::id())
-            ->where('status', 'confirmed') // Only allow payment for confirmed orders
-            ->where('payment_method', 'GCash')
-            ->firstOrFail();
-        
-        // Validate the request
-        $request->validate([
-            'gcash_number' => 'required|string|max:20',
-            'gcash_receipt' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120' // Max 5MB
-        ]);
-        
-        // Handle the receipt file upload
-        if ($request->hasFile('gcash_receipt')) {
-            $file = $request->file('gcash_receipt');
-            $filename = 'gcash_receipt_' . $order->id . '_' . time() . '.' . $file->getClientOriginalExtension();
-            $path = $file->storeAs('gcash_receipts', $filename, 'public');
+        try {
+            // Find the order and make sure it belongs to the authenticated user
+            $order = Order::where('id', $id)
+                ->where('user_id', Auth::id())
+                ->first();
             
-            // Update the order with GCash payment information
-            $order->gcash_number = $request->input('gcash_number');
-            $order->gcash_receipt = $path;
-            $order->save();
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found or you do not have permission to access this order.'
+                ], 404);
+            }
             
-            \Log::info('GCash payment submitted', [
-                'order_id' => $order->id,
-                'gcash_number' => $request->input('gcash_number'),
-                'receipt_path' => $path
+            if ($order->status !== 'confirmed') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only confirmed orders can be paid.'
+                ], 400);
+            }
+            
+            if ($order->payment_method !== 'GCash') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This order does not use GCash payment method.'
+                ], 400);
+            }
+            
+            // Validate the request
+            $validator = \Validator::make($request->all(), [
+                'gcash_number' => 'required|string|max:20',
+                'gcash_receipt' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120' // Max 5MB
+            ]);
+            
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed: ' . $validator->errors()->first()
+                ], 422);
+            }
+            
+            // Handle the receipt file upload
+            if ($request->hasFile('gcash_receipt')) {
+                $file = $request->file('gcash_receipt');
+                $filename = 'gcash_receipt_' . $order->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+                $path = $file->storeAs('gcash_receipts', $filename, 'public');
+                
+                // Update the order with GCash payment information
+                $order->gcash_number = $request->input('gcash_number');
+                $order->gcash_receipt = $path;
+                $order->save();
+                
+                \Log::info('GCash payment submitted', [
+                    'order_id' => $order->id,
+                    'gcash_number' => $request->input('gcash_number'),
+                    'receipt_path' => $path
+                ]);
+                
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Payment submitted successfully! Your receipt is being verified.'
+                ]);
+            }
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to upload receipt. Please try again.'
+            ], 400);
+            
+        } catch (\Exception $e) {
+            \Log::error('GCash payment submission error', [
+                'order_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             
             return response()->json([
-                'success' => true,
-                'message' => 'Payment submitted successfully! Your receipt is being verified.'
-            ]);
+                'success' => false,
+                'message' => 'An error occurred while processing your payment. Please try again.'
+            ], 500);
         }
-        
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to upload receipt. Please try again.'
-        ], 400);
     }
     
     /**
@@ -583,7 +623,7 @@ class OrderController extends Controller
             'customerInfo.note' => 'nullable|string',
             'customerInfo.deliveryDate' => 'required|date|after:today',
             'customerInfo.deliveryTime' => 'required|date_format:H:i',
-            'customerInfo.paymentMethod' => 'required|string|in:COD,GCash',
+            'customerInfo.paymentMethod' => 'required|string|in:COD,GCash,Cash',
             // GCash details are optional during order placement - will be collected after order confirmation
             'customerInfo.gcashNumber' => 'nullable|string',
             'customerInfo.gcashReceipt' => 'nullable|image|max:5120',

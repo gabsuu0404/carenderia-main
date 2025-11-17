@@ -6,7 +6,6 @@ import Notification from '@/Components/Notification';
 import GCashPaymentModal from '@/Components/GCashPaymentModal';
 
 export default function Order({ auth, dbMeals = [] }) {
-    const [selectedOption, setSelectedOption] = useState('All Occasions');
     const [showFoodPaxModal, setShowFoodPaxModal] = useState(false);
     const [showFiestaModal, setShowFiestaModal] = useState(false);
     const [showSingleMealModal, setShowSingleMealModal] = useState(false);
@@ -84,12 +83,6 @@ export default function Order({ auth, dbMeals = [] }) {
             return { available: true }; // Default to available on error to not block user
         }
     };
-
-    const options = [
-        'All Occasions',
-        'Holiday Parties',
-        'Family Gatherings'
-    ];
     
     // Hardcoded list of Filipino dishes with images (as fallback)
     const hardcodedDishes = [
@@ -789,26 +782,6 @@ export default function Order({ auth, dbMeals = [] }) {
                                 </div>
                             </div>
                         </div>
-                        
-                        {/* Right side with options selector */}
-                        <div className="flex-1 flex justify-end">
-                            <div className="w-64">
-                                <label className="block text-white text-sm font-medium mb-2">
-                                    Options:
-                                </label>
-                                <select 
-                                    value={selectedOption}
-                                    onChange={(e) => setSelectedOption(e.target.value)}
-                                    className="w-full px-4 py-2 rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-red-400"
-                                >
-                                    {options.map((option) => (
-                                        <option key={option} value={option}>
-                                            {option}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -1197,7 +1170,7 @@ export default function Order({ auth, dbMeals = [] }) {
                                 return (
                                     <div 
                                         key={dish.id}
-                                        className={`border rounded-lg p-3 transition-colors ${
+                                        className={`border rounded-lg overflow-hidden transition-colors ${
                                             isSelected 
                                                 ? 'border-red-500 bg-red-50' 
                                                 : 'border-gray-200 hover:border-gray-300'
@@ -1207,28 +1180,44 @@ export default function Order({ auth, dbMeals = [] }) {
                                                 : ''
                                         }`}
                                     >
-                                        <div 
-                                            className="flex items-center cursor-pointer"
-                                            onClick={() => isAvailable && handleSingleMealDishToggle(dish.id)}
-                                        >
-                                            <input 
-                                                type="checkbox"
-                                                checked={isSelected}
-                                                onChange={() => {}}
-                                                className="h-4 w-4 text-red-600 focus:ring-red-500"
-                                                disabled={!isAvailable}
-                                            />
-                                            <label className="ml-2 block font-medium text-gray-700 cursor-pointer">
-                                                {dish.name}
-                                                {!isAvailable && (
-                                                    <span className="ml-1 text-xs text-red-600">(Unavailable)</span>
-                                                )}
-                                            </label>
-                                        </div>
-                                        <p className="mt-1 text-sm text-gray-500">
-                                            {dish.description}
-                                        </p>
-                                        <div className="mt-2 flex justify-between items-center">
+                                        {/* Dish Image */}
+                                        {dish.image && (
+                                            <div className="w-full h-32 bg-gray-100">
+                                                <img 
+                                                    src={`/storage/${dish.image}`}
+                                                    alt={dish.name}
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
+                                                        e.target.style.display = 'none';
+                                                        e.target.parentElement.innerHTML = '<div class="w-full h-full flex items-center justify-center text-gray-400"><svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></div>';
+                                                    }}
+                                                />
+                                            </div>
+                                        )}
+                                        
+                                        <div className="p-3">
+                                            <div 
+                                                className="flex items-center cursor-pointer"
+                                                onClick={() => isAvailable && handleSingleMealDishToggle(dish.id)}
+                                            >
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => {}}
+                                                    className="h-4 w-4 text-red-600 focus:ring-red-500"
+                                                    disabled={!isAvailable}
+                                                />
+                                                <label className="ml-2 block font-medium text-gray-700 cursor-pointer">
+                                                    {dish.name}
+                                                    {!isAvailable && (
+                                                        <span className="ml-1 text-xs text-red-600">(Unavailable)</span>
+                                                    )}
+                                                </label>
+                                            </div>
+                                            <p className="mt-1 text-sm text-gray-500">
+                                                {dish.description}
+                                            </p>
+                                            <div className="mt-2 flex justify-between items-center">
                                             <p className="text-sm font-semibold text-red-600">
                                                 ₱{useDatabaseMeals && dish.price ? parseFloat(dish.price).toFixed(2) : "120.00"}
                                             </p>
@@ -1260,6 +1249,7 @@ export default function Order({ auth, dbMeals = [] }) {
                                                     </button>
                                                 </div>
                                             )}
+                                            </div>
                                         </div>
                                     </div>
                                 );
