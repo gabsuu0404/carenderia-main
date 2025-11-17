@@ -15,34 +15,11 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
         visible: !!(flash.success || flash.error)
     });
     
-    // State for confirmed orders popup
-    const [showConfirmedOrdersModal, setShowConfirmedOrdersModal] = useState(false);
-    const [confirmedOrders, setConfirmedOrders] = useState([]);
+    // State for GCash payment modal
     const [selectedOrderForPayment, setSelectedOrderForPayment] = useState(null);
     const [showGCashQRModal, setShowGCashQRModal] = useState(false);
     const [gcashNumber, setGcashNumber] = useState('');
     const [gcashReceipt, setGcashReceipt] = useState(null);
-
-    // Check for newly confirmed orders and show popup automatically
-    useEffect(() => {
-        const confirmedUnpaidOrders = (orders || []).filter(order => {
-            // Show confirmed orders that need payment action
-            if (order.status === 'confirmed') {
-                // For GCash orders, only show if payment not yet submitted (no receipt)
-                if (order.payment_method === 'GCash') {
-                    return !order.gcash_receipt || order.gcash_receipt === null;
-                }
-                // For COD orders, always show
-                return true;
-            }
-            return false;
-        });
-
-        if (confirmedUnpaidOrders.length > 0) {
-            setConfirmedOrders(confirmedUnpaidOrders);
-            setShowConfirmedOrdersModal(true);
-        }
-    }, [orders]);
 
     // Filter orders by status and search term
     const filteredOrders = (orders || []).filter(order => {
@@ -245,62 +222,80 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                         </div>
                                                     </td>
                                                     <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                        {order.status === 'pending' && (
-                                                            <>
-                                                                <Link
-                                                                    href={route('orders.edit', order.id)}
-                                                                    className="text-red-600 hover:text-red-900 mr-4 inline-flex items-center"
-                                                                >
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                                                    </svg>
-                                                                    Edit
-                                                                </Link>
+                                                        <div className="flex flex-col gap-2 items-end">
+                                                            {order.status === 'pending' && (
+                                                                <>
+                                                                    <Link
+                                                                        href={route('orders.edit', order.id)}
+                                                                        className="text-red-600 hover:text-red-900 inline-flex items-center"
+                                                                    >
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                                        </svg>
+                                                                        Edit
+                                                                    </Link>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (confirm('Are you sure you want to cancel this order?')) {
+                                                                                router.post(route('orders.cancel', order.id), {}, {
+                                                                                    onSuccess: () => {
+                                                                                        setNotification({
+                                                                                            message: 'Order cancelled successfully',
+                                                                                            type: 'success',
+                                                                                            visible: true
+                                                                                        });
+                                                                                    },
+                                                                                    onError: (errors) => {
+                                                                                        setNotification({
+                                                                                            message: errors.message || 'Failed to cancel order',
+                                                                                            type: 'error',
+                                                                                            visible: true
+                                                                                        });
+                                                                                    }
+                                                                                });
+                                                                            }
+                                                                        }}
+                                                                        className="text-gray-600 hover:text-gray-900 inline-flex items-center"
+                                                                    >
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                                        </svg>
+                                                                        Cancel
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                            {order.status === 'confirmed' && order.payment_method === 'GCash' && !order.gcash_receipt && (
                                                                 <button
                                                                     onClick={() => {
-                                                                        if (confirm('Are you sure you want to cancel this order?')) {
-                                                                            router.post(route('orders.cancel', order.id), {}, {
-                                                                                onSuccess: () => {
-                                                                                    setNotification({
-                                                                                        message: 'Order cancelled successfully',
-                                                                                        type: 'success',
-                                                                                        visible: true
-                                                                                    });
-                                                                                },
-                                                                                onError: (errors) => {
-                                                                                    setNotification({
-                                                                                        message: errors.message || 'Failed to cancel order',
-                                                                                        type: 'error',
-                                                                                        visible: true
-                                                                                    });
-                                                                                }
-                                                                            });
-                                                                        }
+                                                                        setSelectedOrderForPayment(order);
+                                                                        setGcashNumber('');
+                                                                        setGcashReceipt(null);
+                                                                        setShowGCashQRModal(true);
                                                                     }}
-                                                                    className="text-gray-600 hover:text-gray-900 mr-4 inline-flex items-center"
+                                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs font-semibold inline-flex items-center"
                                                                 >
                                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                                                                     </svg>
-                                                                    Cancel
+                                                                    Pay Now
                                                                 </button>
-                                                            </>
-                                                        )}
-                                                        <button
-                                                            onClick={() => {
-                                                                const modal = document.getElementById(`order-details-${order.id}`);
-                                                                modal.classList.remove('hidden');
-                                                            }}
-                                                            className="text-blue-600 hover:text-blue-900"
-                                                        >
-                                                            View Details
-                                                        </button>
+                                                            )}
+                                                            <button
+                                                                onClick={() => {
+                                                                    const modal = document.getElementById(`order-details-${order.id}`);
+                                                                    modal.classList.remove('hidden');
+                                                                }}
+                                                                className="text-blue-600 hover:text-blue-900"
+                                                            >
+                                                                View Details
+                                                            </button>
+                                                        </div>
                                                         
                                                         {/* Modal for Order Details */}
-                                                        <div id={`order-details-${order.id}`} className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50 hidden">
-                                                            <div className="bg-white rounded-lg p-6 max-w-md w-full">
-                                                                <div className="flex justify-between items-center mb-4">
-                                                                    <h3 className="text-xl font-bold text-gray-900">Order Details</h3>
+                                                        <div id={`order-details-${order.id}`} className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50 hidden p-4">
+                                                            <div className="bg-white rounded-lg p-4 max-w-md w-full max-h-[90vh] overflow-y-auto">
+                                                                <div className="flex justify-between items-center mb-3">
+                                                                    <h3 className="text-lg font-bold text-gray-900">Order Details</h3>
                                                                     <button 
                                                                         onClick={() => {
                                                                             const modal = document.getElementById(`order-details-${order.id}`);
@@ -313,8 +308,8 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                         </svg>
                                                                     </button>
                                                                 </div>
-                                                                <div className="border-t border-gray-200 pt-4">
-                                                                    <div className="mb-4">
+                                                                <div className="border-t border-gray-200 pt-3">
+                                                                    <div className="mb-3">
                                                                         <div className="font-medium">Order #{order.id}</div>
                                                                         <div className="text-sm text-gray-500">
                                                                             Placed on {order.created_at}
@@ -326,8 +321,8 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                         </div>
                                                                     </div>
                                                                     
-                                                                    <div className="mb-4">
-                                                                        <div className="font-medium">Package</div>
+                                                                    <div className="mb-3">
+                                                                        <div className="font-medium text-sm">Package</div>
                                                                         <div className="text-gray-800">
                                                                             {order.package_name}
                                                                             {order.package_set && (
@@ -339,20 +334,20 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                     </div>
 
                                                                     {order.main_item && (
-                                                                        <div className="mb-4">
-                                                                            <div className="font-medium">Main Item</div>
+                                                                        <div className="mb-3">
+                                                                            <div className="font-medium text-sm">Main Item</div>
                                                                             <div className="text-gray-800">{order.main_item}</div>
                                                                         </div>
                                                                     )}
                                                                     
-                                                                    <div className="mb-4">
-                                                                        <div className="font-medium">Number of Pax</div>
+                                                                    <div className="mb-3">
+                                                                        <div className="font-medium text-sm">Number of Pax</div>
                                                                         <div className="text-gray-800">{order.number_of_pax || 1}</div>
                                                                     </div>
                                                                     
                                                                     {order.selected_dishes && order.selected_dishes.length > 0 && (
-                                                                        <div className="mb-4">
-                                                                            <div className="font-medium">Selected Dishes</div>
+                                                                        <div className="mb-3">
+                                                                            <div className="font-medium text-sm">Selected Dishes</div>
                                                                             <ul className="list-disc list-inside text-gray-800">
                                                                                 {order.selected_dishes.map((dish, index) => (
                                                                                     <li key={index}>{dish}</li>
@@ -362,8 +357,8 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                     )}
                                                                     
                                                                     {order.selected_desserts && order.selected_desserts.length > 0 && (
-                                                                        <div className="mb-4">
-                                                                            <div className="font-medium">Selected Desserts</div>
+                                                                        <div className="mb-3">
+                                                                            <div className="font-medium text-sm">Selected Desserts</div>
                                                                             <ul className="list-disc list-inside text-gray-800">
                                                                                 {order.selected_desserts.map((dessert, index) => (
                                                                                     <li key={index}>{dessert}</li>
@@ -372,8 +367,8 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                         </div>
                                                                     )}
                                                                     
-                                                                    <div className="mb-4">
-                                                                        <div className="font-medium">Delivery Information</div>
+                                                                    <div className="mb-3">
+                                                                        <div className="font-medium text-sm">Delivery Information</div>
                                                                         <div className="text-gray-800">
                                                                             <div>
                                                                                 Date: {new Date(order.delivery_date).toLocaleDateString('en-US', {
@@ -388,14 +383,14 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                     </div>
                                                                     
                                                                     {order.notes && (
-                                                                        <div className="mb-4">
-                                                                            <div className="font-medium">Note</div>
+                                                                        <div className="mb-3">
+                                                                            <div className="font-medium text-sm">Note</div>
                                                                             <div className="text-gray-800 whitespace-pre-wrap">{order.notes}</div>
                                                                         </div>
                                                                     )}
                                                                     
-                                                                    <div className="mb-4">
-                                                                        <div className="font-medium">Payment Information</div>
+                                                                    <div className="mb-3">
+                                                                        <div className="font-medium text-sm">Payment Information</div>
                                                                         <div className="text-gray-800">
                                                                             <div className="flex items-center gap-2">
                                                                                 <span>Method:</span>
@@ -422,20 +417,20 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                         </div>
                                                                     </div>
                                                                     
-                                                                    <div className="mt-6 border-t border-gray-200 pt-4">
-                                                                        <div className="flex justify-between font-bold">
+                                                                    <div className="mt-3 border-t border-gray-200 pt-3">
+                                                                        <div className="flex justify-between font-bold text-sm">
                                                                             <div>Total Amount:</div>
                                                                             <div>{formatPrice(order.total_amount)}</div>
                                                                         </div>
                                                                     </div>
                                                                     
-                                                                    <div className="mt-6 flex justify-end">
+                                                                    <div className="mt-4 flex justify-end flex-wrap gap-2">
                                                                         <button
                                                                             onClick={() => {
                                                                                 const modal = document.getElementById(`order-details-${order.id}`);
                                                                                 modal.classList.add('hidden');
                                                                             }}
-                                                                            className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded focus:outline-none"
+                                                                            className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-1.5 px-3 rounded focus:outline-none text-sm"
                                                                         >
                                                                             Close
                                                                         </button>
@@ -464,13 +459,13 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                                                             });
                                                                                         }
                                                                                     }}
-                                                                                    className="ml-4 bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded focus:outline-none"
+                                                                                    className="bg-gray-600 hover:bg-gray-700 text-white font-medium py-1.5 px-3 rounded focus:outline-none text-sm"
                                                                                 >
                                                                                     Cancel Order
                                                                                 </button>
                                                                                 <Link
                                                                                     href={route('orders.edit', order.id)}
-                                                                                    className="ml-4 bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded focus:outline-none flex items-center"
+                                                                                    className="bg-red-600 hover:bg-red-700 text-white font-medium py-1.5 px-3 rounded focus:outline-none flex items-center text-sm"
                                                                                 >
                                                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -494,109 +489,6 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                     </div>
                 </div>
             </div>
-
-            {/* Confirmed Orders Popup Modal */}
-            {showConfirmedOrdersModal && confirmedOrders.length > 0 && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-                        <div className="p-6">
-                            <div className="flex justify-between items-center mb-6">
-                                <div>
-                                    <h2 className="text-2xl font-bold text-gray-800">🎉 Orders Confirmed!</h2>
-                                    <p className="text-gray-600 mt-1">The following orders have been confirmed and are ready for payment</p>
-                                </div>
-                                <button 
-                                    onClick={() => setShowConfirmedOrdersModal(false)}
-                                    className="text-gray-500 hover:text-gray-700"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-
-                            <div className="space-y-4">
-                                {confirmedOrders.map((order) => (
-                                    <div key={order.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                                        <div className="flex justify-between items-start">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-3 mb-2">
-                                                    <h3 className="text-lg font-semibold text-gray-900">Order #{order.id}</h3>
-                                                    <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                                                        Confirmed
-                                                    </span>
-                                                </div>
-                                                
-                                                <div className="grid grid-cols-2 gap-3 text-sm mb-3">
-                                                    <div>
-                                                        <span className="text-gray-600">Package:</span>
-                                                        <span className="ml-2 font-medium text-gray-900">{order.package_name}</span>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-gray-600">Total Amount:</span>
-                                                        <span className="ml-2 font-medium text-gray-900">₱{parseFloat(order.total_amount).toFixed(2)}</span>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-gray-600">Delivery Date:</span>
-                                                        <span className="ml-2 font-medium text-gray-900">{new Date(order.delivery_date).toLocaleDateString()}</span>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-gray-600">Payment Method:</span>
-                                                        <span className="ml-2 font-medium text-gray-900">{order.payment_method}</span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="text-sm">
-                                                    <span className="text-gray-600">Dishes:</span>
-                                                    <span className="ml-2 text-gray-900">{order.selected_dishes?.join(', ') || 'N/A'}</span>
-                                                </div>
-                                            </div>
-
-                                            <div className="ml-4">
-                                                {order.payment_method === 'GCash' ? (
-                                                    // Check if payment has been submitted (gcash_receipt exists)
-                                                    order.gcash_receipt ? (
-                                                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
-                                                            <p className="text-sm font-medium text-green-800">Paid via GCash</p>
-                                                            <p className="text-xs text-green-600 mt-1">Payment submitted</p>
-                                                        </div>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedOrderForPayment(order);
-                                                                setGcashNumber('');
-                                                                setGcashReceipt(null);
-                                                                setShowGCashQRModal(true);
-                                                            }}
-                                                            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
-                                                        >
-                                                            Pay Now with GCash
-                                                        </button>
-                                                    )
-                                                ) : (
-                                                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
-                                                        <p className="text-sm font-medium text-green-800">Cash on Delivery</p>
-                                                        <p className="text-xs text-green-600 mt-1">Pay upon delivery</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="mt-6 flex justify-end">
-                                <button
-                                    onClick={() => setShowConfirmedOrdersModal(false)}
-                                    className="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-6 rounded-lg"
-                                >
-                                    Close
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* GCash QR Code Payment Modal */}
             {showGCashQRModal && selectedOrderForPayment && (
@@ -736,27 +628,35 @@ export default function MyOrders({ auth, orders, pendingOrdersCount }) {
                                                 }
                                             );
                                             
-                                            setNotification({
-                                                message: response.data.message || 'Payment submitted successfully! Waiting for verification.',
-                                                type: 'success',
-                                                visible: true
-                                            });
-                                            
-                                            // Close modals and reset form
-                                            setShowGCashQRModal(false);
-                                            setSelectedOrderForPayment(null);
-                                            setShowConfirmedOrdersModal(false);
-                                            setGcashNumber('');
-                                            setGcashReceipt(null);
-                                            
-                                            // Reload page after a delay to show updated order
-                                            setTimeout(() => {
-                                                window.location.reload();
-                                            }, 2000);
+                                            if (response.data.success) {
+                                                setNotification({
+                                                    message: response.data.message || 'Payment submitted successfully! Waiting for verification.',
+                                                    type: 'success',
+                                                    visible: true
+                                                });
+                                                
+                                                // Close modals and reset form
+                                                setShowGCashQRModal(false);
+                                                setSelectedOrderForPayment(null);
+                                                setGcashNumber('');
+                                                setGcashReceipt(null);
+                                                
+                                                // Reload page after a delay to show updated order
+                                                setTimeout(() => {
+                                                    window.location.reload();
+                                                }, 2000);
+                                            } else {
+                                                setNotification({
+                                                    message: response.data.message || 'Failed to submit payment.',
+                                                    type: 'error',
+                                                    visible: true
+                                                });
+                                            }
                                         } catch (error) {
                                             console.error('Payment submission error:', error);
+                                            const errorMessage = error.response?.data?.message || error.message || 'Failed to submit payment. Please try again.';
                                             setNotification({
-                                                message: error.response?.data?.message || 'Failed to submit payment. Please try again.',
+                                                message: errorMessage,
                                                 type: 'error',
                                                 visible: true
                                             });

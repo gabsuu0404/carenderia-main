@@ -772,6 +772,22 @@ public function storeInventory(Request $request)
             ];
         });
         
+        // Fetch visible meals from the database for Single Meal selection
+        $meals = \App\Models\Meal::where('is_hidden', false)
+                    ->orderBy('name')
+                    ->get()
+                    ->map(function ($meal) {
+                        return [
+                            'id' => $meal->id,
+                            'name' => $meal->name,
+                            'description' => $meal->description,
+                            'price' => $meal->price,
+                            'category' => $meal->category,
+                            'image' => $meal->image ?: '/images/dishes/default.jpg',
+                            'is_available' => $meal->is_available,
+                        ];
+                    });
+        
         // Log the orders data for debugging
         \Log::info('Orders data sent to Employee Orders page:', [
             'count' => $orders->count(),
@@ -779,7 +795,8 @@ public function storeInventory(Request $request)
         ]);
 
         return Inertia::render('Employee/Orders', [
-            'orders' => $orders
+            'orders' => $orders,
+            'dbMeals' => $meals
         ]);
     }
     

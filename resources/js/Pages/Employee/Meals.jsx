@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, useForm, router } from '@inertiajs/react';
 import EmployeeLayout from '@/Layouts/EmployeeLayout';
 import Notification from '@/Components/Notification';
 import PrimaryButton from '@/Components/PrimaryButton';
@@ -207,8 +207,11 @@ export default function Meals({ meals, hiddenMeals, success, error }) {
 			if (editingMeal) {
 				console.log(`Updating meal with ID: ${editingMeal.id}`);
 				
-				// Ensure we're using the correct ID and proper FormData handling
-				put(route('employee.meals.update', editingMeal.id), formData, {
+				// For file uploads with PUT, we need to use POST with _method
+				formData.append('_method', 'PUT');
+				
+				// Use router.post which properly handles FormData with files
+				router.post(route('employee.meals.update', editingMeal.id), formData, {
 					onSuccess: () => {
 						console.log('Meal updated successfully');
 						// Show success message
