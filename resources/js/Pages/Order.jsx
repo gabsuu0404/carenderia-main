@@ -68,6 +68,12 @@ export default function Order({ auth, dbMeals = [] }) {
         return tomorrow.toISOString().split('T')[0];
     }
     
+    // Helper function to get today's date in YYYY-MM-DD format
+    function getTodayDate() {
+        const today = new Date();
+        return today.toISOString().split('T')[0];
+    }
+    
     // Function to check date availability
     const checkDateAvailability = async (date, isFiestaPackage = false, numberOfPax = 1) => {
         try {
@@ -563,7 +569,7 @@ export default function Order({ auth, dbMeals = [] }) {
                 quantity: totalQuantity,
                 customerInfo: {
                     ...customerInfo,
-                    numberOfPax: 1
+                    numberOfPax: totalQuantity  // Store actual quantity for Single Meal
                 }
             };
             
@@ -584,9 +590,13 @@ export default function Order({ auth, dbMeals = [] }) {
         setSubmitError(null);
         
         // Update pending order data with latest customer info
+        // Preserve numberOfPax from pendingOrderData (for Single Meal, it's the total quantity)
         const finalOrderData = {
             ...pendingOrderData,
-            customerInfo: customerInfo
+            customerInfo: {
+                ...customerInfo,
+                numberOfPax: pendingOrderData.customerInfo.numberOfPax
+            }
         };
         
         // Prepare request data (FormData or JSON based on payment method)
@@ -2101,7 +2111,7 @@ export default function Order({ auth, dbMeals = [] }) {
                                         value={customerInfo.deliveryDate}
                                         onChange={handleCustomerInfoChange}
                                         name="deliveryDate"
-                                        min={getTomorrowDate()}
+                                        min={getTodayDate()}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                                     />
                                 </div>

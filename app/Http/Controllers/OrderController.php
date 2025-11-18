@@ -555,9 +555,10 @@ class OrderController extends Controller
             ->where('status', '!=', 'cancelled')
             ->count();
         
-        // Check total pax for the date (only Food Pax orders, NOT Fiesta packages)
+        // Check total pax for the date (only Food Pax orders, NOT Fiesta packages or Single Meal)
         $totalPaxForDate = Order::whereDate('delivery_date', $date)
             ->whereNull('package_set')
+            ->where('package_id', '!=', 5) // Exclude Single Meal orders (package ID 5)
             ->where('status', '!=', 'cancelled')
             ->sum('number_of_pax');
         
@@ -610,6 +611,9 @@ class OrderController extends Controller
         // Log the incoming request data for debugging
         \Log::info('Order submission request data:', $request->all());
         
+        // Check if this is a Single Meal order (package ID 5)
+        $isSingleMeal = $request->input('package.id') == 5;
+        
         // Base validation for all orders
         $baseValidation = [
             'package.id' => 'required|integer',
@@ -621,7 +625,8 @@ class OrderController extends Controller
             'customerInfo.phone' => 'nullable|string',
             'customerInfo.address' => 'required|string',
             'customerInfo.note' => 'nullable|string',
-            'customerInfo.deliveryDate' => 'required|date|after:today',
+            // Single Meal orders can be for today, other packages require after:today
+            'customerInfo.deliveryDate' => $isSingleMeal ? 'required|date|after_or_equal:today' : 'required|date|after:today',
             'customerInfo.deliveryTime' => 'required|date_format:H:i',
             'customerInfo.paymentMethod' => 'required|string|in:COD,GCash,Cash',
             // GCash details are optional during order placement - will be collected after order confirmation
@@ -682,10 +687,11 @@ class OrderController extends Controller
             }
         }
         
-        // Check total pax limit (ONLY for Food Pax orders, NOT Fiesta packages)
-        if (!$isFiestaPackage) {
+        // Check total pax limit (ONLY for Food Pax orders, NOT Fiesta packages or Single Meal)
+        if (!$isFiestaPackage && !$isSingleMeal) {
             $totalPaxForDate = Order::whereDate('delivery_date', $deliveryDate)
                 ->whereNull('package_set') // Only count Food Pax orders
+                ->where('package_id', '!=', 5) // Exclude Single Meal orders (package ID 5)
                 ->where('status', '!=', 'cancelled')
                 ->sum('number_of_pax');
                 
@@ -739,21 +745,40 @@ class OrderController extends Controller
                 'paxRange' => $paxRange
             ]);
         } else {
-            // Regular Food Pax pricing
+            // Check if this is a Single Meal order (package id 5)
+            $isSingleMeal = $packageId == 5;
+            
             // Extract price from string (e.g., "₱250.00" to 250.00)
             $priceString = $request->input('package.price');
             $numericPrice = (float) preg_replace('/[^0-9.]/', '', $priceString);
-            // Calculate total amount based on package price and number of pax
-            $totalAmount = $numericPrice * $request->input('customerInfo.numberOfPax');
             
-            // Cap Food Pax total at ₱10,000 maximum
-            if ($totalAmount > 10000) {
-                $totalAmount = 10000;
-            }
-            
-            // Ensure minimum of ₱1,000
-            if ($totalAmount < 1000) {
-                $totalAmount = 1000;
+            if ($isSingleMeal) {
+                // For Single Meal orders, the total amount is already calculated in frontend
+                // and passed as package.price - use it directly as total amount
+                $totalAmount = $numericPrice;
+                \Log::info('Single Meal order - using frontend calculated total', [
+                    'total_amount' => $totalAmount
+                ]);
+            } else {
+                // Regular Food Pax pricing
+                // Calculate total amount based on package price per pax and number of pax
+                $totalAmount = $numericPrice * $request->input('customerInfo.numberOfPax');
+                
+                // Cap Food Pax total at ₱10,000 maximum
+                if ($totalAmount > 10000) {
+                    $totalAmount = 10000;
+                }
+                
+                // Ensure minimum of ₱1,000
+                if ($totalAmount < 1000) {
+                    $totalAmount = 1000;
+                }
+                
+                \Log::info('Food Pax order - calculated total', [
+                    'price_per_pax' => $numericPrice,
+                    'num_pax' => $request->input('customerInfo.numberOfPax'),
+                    'total_amount' => $totalAmount
+                ]);
             }
         }
 

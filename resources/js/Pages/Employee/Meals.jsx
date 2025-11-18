@@ -264,17 +264,13 @@ export default function Meals({ meals, hiddenMeals, success, error }) {
 					},
 				});
 			} else {
-				post(route('employee.meals.store'), formData, {
+				post(route('employee.meals.store'), {
+					data: formData,
 					onSuccess: () => {
 						console.log('Meal created successfully');
 						
-						// Just close the modal - no need for setTimeout as Inertia will handle the redirect
-						setShowModal(false);
-						
-						// Reset form data
-						reset();
-						setImagePreview(null);
-						setEditingMeal(null);
+						// Close modal immediately
+						closeModal();
 						
 						// Show success message for the user
 						setFormMessage({ type: 'success', text: 'Meal created successfully!' });
