@@ -43,6 +43,7 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
         customerEmail: '',
         deliveryAddress: '',
         deliveryDate: '',
+        deliveryTime: '',
         packageType: 'Food Pax',
         numberOfPax: 10,
         notes: '',
@@ -178,7 +179,9 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
     
     const calculateTotalAmount = () => {
         if (orderForm.packageType === 'Food Pax') {
-            return orderForm.numberOfPax * 150;
+            // Food Pax pricing: ₱500 per pax, with min ₱1,000 and max ₱10,000
+            const baseAmount = orderForm.numberOfPax * 500;
+            return Math.min(Math.max(baseAmount, 1000), 10000);
         } else if (orderForm.packageType === 'Filipino Fiesta Package') {
             const setPrices = { 'A': 14999, 'B': 9999, 'C': 7999 };
             return setPrices[selectedFiestaSet] || 0;
@@ -189,6 +192,27 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
             }, 0);
         }
         return 0;
+    };
+    
+    // Helper function to get the correct quantity/pax count for an order
+    const getOrderQuantity = (order) => {
+        // For Fiesta packages, show the pax range
+        if (order.package_set) {
+            if (order.package_set === 'A') return '15-30';
+            if (order.package_set === 'B') return '10-20';
+            if (order.package_set === 'C') return '10-15';
+            return order.number_of_pax;
+        }
+        
+        // For Single Meal orders, use number_of_pax directly (it now stores the total quantity)
+        if (order.package_name === 'Single Meal') {
+            // New orders store the total quantity in number_of_pax
+            // Just return it directly
+            return order.number_of_pax;
+        }
+        
+        // For Food Pax and other orders, return number_of_pax
+        return order.number_of_pax;
     };
     
     // Load order limits when component mounts
@@ -653,7 +677,12 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
                                                     <div>
                                                         <p className="text-sm text-green-600 font-medium">Total Pax</p>
                                                         <p className="text-3xl font-bold text-green-900">
-                                                            {selectedDate.orders.reduce((sum, order) => sum + (parseInt(order.number_of_pax) || 0), 0)}
+                                                            {selectedDate.orders.reduce((sum, order) => {
+                                                                const quantity = getOrderQuantity(order);
+                                                                // If it's a range string like '15-30', don't add it to the total
+                                                                if (typeof quantity === 'string') return sum;
+                                                                return sum + (parseInt(quantity) || 0);
+                                                            }, 0)}
                                                         </p>
                                                     </div>
                                                     <div className="bg-green-200 p-3 rounded-full">
@@ -723,13 +752,7 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
                                                                 {order.package_name}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                                {order.package_set ? (
-                                                                    <span>
-                                                                        {order.package_set === 'A' ? '15-30' : 
-                                                                         order.package_set === 'B' ? '10-20' : 
-                                                                         order.package_set === 'C' ? '10-15' : order.number_of_pax}
-                                                                    </span>
-                                                                ) : order.number_of_pax}
+                                                                {getOrderQuantity(order)}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                                 ₱{parseFloat(order.total_amount).toFixed(2)}
@@ -1085,7 +1108,17 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
                 const totalRevenue = monthlyOrders
                     .filter(order => order.status === 'completed')
                     .reduce((sum, order) => sum + parseFloat(order.total_amount || 0), 0);
-                const totalPax = filteredOrders.reduce((sum, order) => sum + (parseInt(order.number_of_pax) || 0), 0);
+                // Total PAX calculation - for Filipino Fiesta packages, use the max PAX based on set
+                const totalPax = filteredOrders.reduce((sum, order) => {
+                    // For Filipino Fiesta packages, use the maximum PAX for the set
+                    if (order.package_set) {
+                        if (order.package_set === 'A') return sum + 30; // Set A: 15-30 pax
+                        if (order.package_set === 'B') return sum + 20; // Set B: 10-20 pax
+                        if (order.package_set === 'C') return sum + 15; // Set C: 10-15 pax
+                    }
+                    // For other packages (Food Pax, Single Meal), use number_of_pax
+                    return sum + (parseInt(order.number_of_pax) || 0);
+                }, 0);
                 
                 return (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1794,6 +1827,15 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
                                         ></textarea>
                                     </div>
                                     <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Time *</label>
+                                        <input
+                                            type="time"
+                                            value={orderForm.deliveryTime}
+                                            onChange={(e) => setOrderForm({...orderForm, deliveryTime: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                        />
+                                    </div>
+                                    <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method *</label>
                                         <select
                                             value={orderForm.paymentMethod}
@@ -1859,6 +1901,7 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
                                         customerEmail: '',
                                         deliveryAddress: '',
                                         deliveryDate: '',
+                                        deliveryTime: '',
                                         packageType: 'Food Pax',
                                         numberOfPax: 10,
                                         notes: '',
@@ -1953,8 +1996,10 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
                                             address: orderForm.deliveryAddress,
                                             note: orderForm.notes,
                                             deliveryDate: orderForm.deliveryDate,
-                                            deliveryTime: '12:00',
-                                            numberOfPax: orderForm.numberOfPax,
+                                            deliveryTime: orderForm.deliveryTime || '12:00',
+                                            numberOfPax: orderForm.packageType === 'Single Meal' 
+                                                ? Object.values(singleMealQuantities).reduce((sum, qty) => sum + qty, 0)
+                                                : orderForm.numberOfPax,
                                             paymentMethod: orderForm.paymentMethod,
                                             gcashNumber: orderForm.paymentMethod === 'GCash' ? gcashNumber : undefined,
                                             gcashReceipt: orderForm.paymentMethod === 'GCash' ? gcashReceipt : undefined
@@ -1993,7 +2038,9 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
                                         submitData.append('customerInfo[note]', orderData.customerInfo.note);
                                         submitData.append('customerInfo[deliveryDate]', orderData.customerInfo.deliveryDate);
                                         submitData.append('customerInfo[deliveryTime]', orderData.customerInfo.deliveryTime);
-                                        submitData.append('customerInfo[numberOfPax]', orderData.customerInfo.numberOfPax);
+                                        submitData.append('customerInfo[numberOfPax]', orderForm.packageType === 'Single Meal' 
+                                            ? Object.values(singleMealQuantities).reduce((sum, qty) => sum + qty, 0)
+                                            : orderForm.numberOfPax);
                                         submitData.append('customerInfo[paymentMethod]', orderData.customerInfo.paymentMethod);
                                         submitData.append('customerInfo[gcashNumber]', gcashNumber);
                                         submitData.append('customerInfo[gcashReceipt]', gcashReceipt);
@@ -2022,6 +2069,7 @@ export default function Orders({ auth, orders = [], dbMeals = [] }) {
                                             customerEmail: '',
                                             deliveryAddress: '',
                                             deliveryDate: '',
+                                            deliveryTime: '',
                                             packageType: 'Food Pax',
                                             numberOfPax: 10,
                                             notes: '',
